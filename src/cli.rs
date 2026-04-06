@@ -60,6 +60,15 @@ pub enum Commands {
     /// Delete/trash a clip
     Delete(DeleteArgs),
 
+    /// Update clip title, lyrics, or caption
+    Set(SetArgs),
+
+    /// Toggle clip public/private
+    Publish(PublishArgs),
+
+    /// Get word-level timestamped lyrics
+    TimedLyrics(TimedLyricsArgs),
+
     /// Show credit balance and plan info
     Credits,
 
@@ -292,6 +301,52 @@ pub struct DownloadArgs {
     /// Download video instead of audio
     #[arg(long)]
     pub video: bool,
+}
+
+#[derive(clap::Args)]
+pub struct SetArgs {
+    /// Clip ID to update
+    pub id: String,
+
+    /// New title
+    #[arg(long)]
+    pub title: Option<String>,
+
+    /// New lyrics text
+    #[arg(long)]
+    pub lyrics: Option<String>,
+
+    /// Read lyrics from file
+    #[arg(long)]
+    pub lyrics_file: Option<String>,
+
+    /// New caption
+    #[arg(long)]
+    pub caption: Option<String>,
+
+    /// Remove custom cover image
+    #[arg(long)]
+    pub remove_cover: bool,
+}
+
+#[derive(clap::Args)]
+pub struct PublishArgs {
+    /// Clip ID(s)
+    pub ids: Vec<String>,
+
+    /// Make public (default) or --private
+    #[arg(long)]
+    pub private: bool,
+}
+
+#[derive(clap::Args)]
+pub struct TimedLyricsArgs {
+    /// Clip ID
+    pub id: String,
+
+    /// Output as LRC format
+    #[arg(long)]
+    pub lrc: bool,
 }
 
 #[derive(clap::Args)]

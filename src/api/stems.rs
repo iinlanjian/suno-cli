@@ -1,14 +1,13 @@
 use super::SunoClient;
-use super::types::{Clip, StemsRequest};
+use super::types::Clip;
 use crate::errors::CliError;
 
 impl SunoClient {
+    /// Extract stems (vocals + instruments) from a clip.
+    /// Uses /api/edit/stems/{song_id} per gcui-art/paean-ai evidence.
     pub async fn stems(&self, clip_id: &str) -> Result<Clip, CliError> {
         let resp = self
-            .post("/api/generate/stems/")
-            .json(&StemsRequest {
-                clip_id: clip_id.to_string(),
-            })
+            .post(&format!("/api/edit/stems/{clip_id}"))
             .send()
             .await?;
         let resp = self.check_response(resp).await?;

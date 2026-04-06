@@ -11,7 +11,8 @@ impl SunoClient {
         Ok(result.clips)
     }
 
-    /// Poll clip status by IDs until all are complete or failed.
+    /// Poll clip status by IDs until all are complete or errored.
+    /// "streaming" means still generating — we wait for "complete".
     pub async fn poll_clips(
         &self,
         ids: &[String],
@@ -24,7 +25,7 @@ impl SunoClient {
             let clips = self.get_clips(ids).await?;
             let all_done = clips
                 .iter()
-                .all(|c| c.status == "complete" || c.status == "error" || c.status == "streaming");
+                .all(|c| c.status == "complete" || c.status == "error");
 
             if all_done || start.elapsed() > timeout {
                 return Ok(clips);
@@ -33,15 +34,20 @@ impl SunoClient {
         }
     }
 
-    /// Fetch clips by IDs via the feed endpoint.
+    /// Fetch clips by IDs. Batches in pairs to avoid Suno's limit
+    /// (SunoAI-API #49: 4+ IDs from different batches only returns first 2).
     pub async fn get_clips(&self, ids: &[String]) -> Result<Vec<Clip>, CliError> {
-        let ids_param = ids.join(",");
-        let resp = self
-            .get(&format!("/api/feed/?ids={ids_param}"))
-            .send()
-            .await?;
-        let resp = self.check_response(resp).await?;
-        let clips: Vec<Clip> = resp.json().await?;
-        Ok(clips)
+        let mut all_clips = Vec::new();
+        for chunk in ids.chunks(2) {
+            let ids_param = chunk.join(",");
+            let resp = self
+                .get(&format!("/api/feed/?ids={ids_param}"))
+                .send()
+                .await?;
+            let resp = self.check_response(resp).await?;
+            let clips: Vec<Clip> = resp.json().await?;
+            all_clips.extend(clips);
+        }
+        Ok(all_clips)
     }
 }

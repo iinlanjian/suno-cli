@@ -108,6 +108,37 @@ pub struct FeedResponse {
     pub has_more: bool,
 }
 
+// --- Feed V3 Request ---
+
+#[derive(Debug, Serialize)]
+pub struct FeedV3Request {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filters: Option<FeedFilters>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FeedFilters {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "searchText")]
+    pub search_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trashed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "fullSong")]
+    pub full_song: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stem: Option<FilterPresence>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FilterPresence {
+    pub presence: String,
+}
+
 // --- Generation ---
 
 #[derive(Debug, Serialize)]
@@ -134,12 +165,25 @@ pub struct GenerateRequest {
     pub continue_at: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
+    /// Control sliders — nested correctly under metadata per xiliourt/Suno-Architect
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub weirdness: Option<f64>,
+    pub metadata: Option<GenerateMetadata>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GenerateMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub style_influence: Option<f64>,
+    pub control_sliders: Option<ControlSliders>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ControlSliders {
+    /// Weirdness: 0.0-1.0 (maps from 0-100 in UI)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub variation_category: Option<String>,
+    pub weirdness_constraint: Option<f64>,
+    /// Style weight: 0.0-1.0 (maps from 0-90 in UI)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style_weight: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -167,6 +211,52 @@ pub struct LyricsResult {
     pub tags: Vec<String>,
 }
 
+// --- Aligned / Timed Lyrics ---
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AlignedWord {
+    pub word: String,
+    pub start_s: f64,
+    pub end_s: f64,
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub p_align: Option<f64>,
+}
+
+// --- Captcha Check ---
+
+#[derive(Debug, Deserialize)]
+pub struct CaptchaCheckResponse {
+    #[serde(default)]
+    pub captcha_required: bool,
+    #[serde(default)]
+    pub captcha_url: Option<String>,
+}
+
+// --- Set Metadata ---
+
+#[derive(Debug, Serialize)]
+pub struct SetMetadataRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lyrics: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remove_image_cover: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remove_video_cover: Option<bool>,
+}
+
+// --- Set Visibility ---
+
+#[derive(Debug, Serialize)]
+pub struct SetVisibilityRequest {
+    pub is_public: bool,
+}
+
 // --- Concat ---
 
 #[derive(Debug, Serialize)]
@@ -189,11 +279,4 @@ pub struct CoverRequest {
 pub struct RemasterRequest {
     pub clip_id: String,
     pub remaster_model: String,
-}
-
-// --- Stems ---
-
-#[derive(Debug, Serialize)]
-pub struct StemsRequest {
-    pub clip_id: String,
 }

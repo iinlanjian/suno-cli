@@ -5,6 +5,7 @@ pub mod delete;
 pub mod feed;
 pub mod generate;
 pub mod lyrics;
+pub mod metadata;
 pub mod remaster;
 pub mod stems;
 pub mod types;

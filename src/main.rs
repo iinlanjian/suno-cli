@@ -9,7 +9,7 @@ mod output;
 use clap::Parser;
 
 use api::SunoClient;
-use api::types::GenerateRequest;
+use api::types::{ControlSliders, GenerateMetadata, GenerateRequest, SetMetadataRequest};
 use auth::AuthState;
 use cli::*;
 use errors::CliError;
@@ -37,7 +37,24 @@ fn build_tags(tags: Option<&str>, vocal: Option<&VocalGender>) -> Option<String>
     }
 }
 
-/// Generate, wait, optionally download — shared by generate/describe/extend.
+/// Build metadata with control sliders (weirdness, style influence).
+fn build_metadata(
+    weirdness: Option<f64>,
+    style_influence: Option<f64>,
+) -> Option<GenerateMetadata> {
+    if weirdness.is_none() && style_influence.is_none() {
+        return None;
+    }
+    Some(GenerateMetadata {
+        control_sliders: Some(ControlSliders {
+            // Normalize 0-100 → 0.0-1.0
+            weirdness_constraint: weirdness.map(|w| (w / 100.0).clamp(0.0, 1.0)),
+            style_weight: style_influence.map(|s| (s / 100.0).clamp(0.0, 1.0)),
+        }),
+    })
+}
+
+/// Generate, wait, optionally download with lyrics embedding.
 async fn handle_generation(
     c: &SunoClient,
     clips: Vec<api::types::Clip>,
@@ -58,8 +75,20 @@ async fn handle_generation(
             for clip in &final_clips {
                 if clip.status == "complete" {
                     let path = download::download_clip(clip, dir, false).await?;
+
+                    // Embed lyrics into MP3
+                    let plain_lyrics = clip.metadata.prompt.as_deref();
+                    // Try to get timed lyrics for synced display
+                    let aligned = c.aligned_lyrics(&clip.id).await.ok();
+                    download::embed_lyrics_in_mp3(
+                        &path,
+                        &clip.title,
+                        plain_lyrics,
+                        aligned.as_deref(),
+                    )?;
+
                     if !quiet {
-                        eprintln!("Downloaded: {path}");
+                        eprintln!("Downloaded: {path} (lyrics embedded)");
                     }
                 }
             }
@@ -137,38 +166,14 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Search(args) => {
-            // Search across all pages for matching clips
-            let c = client()?;
-            let mut found = Vec::new();
-            let mut page = 0u32;
-            let query_lower = args.query.to_lowercase();
-            loop {
-                let feed = c.feed(page).await?;
-                for clip in &feed.clips {
-                    let title_match = clip.title.to_lowercase().contains(&query_lower);
-                    let tag_match = clip
-                        .metadata
-                        .tags
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&query_lower);
-                    if title_match || tag_match {
-                        found.push(clip.clone());
-                    }
-                }
-                if !feed.has_more || page > 10 {
-                    break;
-                }
-                page += 1;
-            }
+            let feed = client()?.search(&args.query).await?;
             match fmt {
-                OutputFormat::Json => output::json::success(&found),
+                OutputFormat::Json => output::json::success(&feed.clips),
                 OutputFormat::Table => {
-                    if found.is_empty() {
+                    if feed.clips.is_empty() {
                         eprintln!("No clips matching \"{}\"", args.query);
                     } else {
-                        output::table::clips(&found);
+                        output::table::clips(&feed.clips);
                     }
                 }
             }
@@ -192,6 +197,24 @@ async fn run() -> Result<(), CliError> {
                 _ => None,
             };
             let tags = build_tags(args.tags.as_deref(), args.vocal.as_ref());
+            let metadata = build_metadata(args.weirdness, args.style_influence);
+
+            let c = client()?;
+
+            // Check captcha before generating
+            if let Ok(captcha_needed) = c.check_captcha().await {
+                if captcha_needed {
+                    if args.token.is_none() {
+                        eprintln!(
+                            "Warning: captcha required. Use --token <hcaptcha_token> or solve captcha in browser."
+                        );
+                        eprintln!(
+                            "Tip: Premier accounts with 200+ credits consumed usually skip captcha."
+                        );
+                    }
+                }
+            }
+
             let req = GenerateRequest {
                 mv: args.model.to_api_key().to_string(),
                 prompt: lyrics,
@@ -205,15 +228,12 @@ async fn run() -> Result<(), CliError> {
                 continue_clip_id: None,
                 continue_at: None,
                 task: None,
-                weirdness: args.weirdness,
-                style_influence: args.style_influence,
-                variation_category: args.variation.map(|v| v.to_api_value().to_string()),
+                metadata,
             };
 
             if !cli.quiet {
                 eprintln!("Submitting generation ({})...", args.model.display_name());
             }
-            let c = client()?;
             let clips = c.generate(&req).await?;
             handle_generation(
                 &c,
@@ -228,6 +248,8 @@ async fn run() -> Result<(), CliError> {
 
         Commands::Describe(args) => {
             let tags = build_tags(args.tags.as_deref(), args.vocal.as_ref());
+            let metadata = build_metadata(args.weirdness, args.style_influence);
+
             let req = GenerateRequest {
                 mv: args.model.to_api_key().to_string(),
                 prompt: Some(String::new()),
@@ -241,9 +263,7 @@ async fn run() -> Result<(), CliError> {
                 continue_clip_id: None,
                 continue_at: None,
                 task: None,
-                weirdness: args.weirdness,
-                style_influence: args.style_influence,
-                variation_category: None,
+                metadata,
             };
 
             if !cli.quiet {
@@ -276,9 +296,7 @@ async fn run() -> Result<(), CliError> {
                 continue_clip_id: Some(args.clip_id),
                 continue_at: Some(args.at),
                 task: None,
-                weirdness: None,
-                style_influence: None,
-                variation_category: None,
+                metadata: None,
             };
 
             let c = client()?;
@@ -340,6 +358,22 @@ async fn run() -> Result<(), CliError> {
             let mut paths = Vec::new();
             for clip in &clips {
                 let path = download::download_clip(clip, &args.output, args.video).await?;
+
+                // Embed lyrics into MP3 downloads
+                if !args.video {
+                    let plain_lyrics = clip.metadata.prompt.as_deref();
+                    let aligned = c.aligned_lyrics(&clip.id).await.ok();
+                    download::embed_lyrics_in_mp3(
+                        &path,
+                        &clip.title,
+                        plain_lyrics,
+                        aligned.as_deref(),
+                    )?;
+                    if !cli.quiet {
+                        eprintln!("Embedded lyrics into {path}");
+                    }
+                }
+
                 if !cli.quiet {
                     eprintln!("Downloaded: {path}");
                 }
@@ -362,11 +396,76 @@ async fn run() -> Result<(), CliError> {
                     args.ids.join(", ")
                 );
                 eprintln!("Use -y to skip confirmation, or press Ctrl+C to cancel");
-                // Give 2 seconds to cancel
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
             client()?.delete_clips(&args.ids).await?;
             eprintln!("Deleted {} clip(s)", args.ids.len());
+        }
+
+        Commands::Set(args) => {
+            let lyrics = match (&args.lyrics, &args.lyrics_file) {
+                (Some(l), _) => Some(l.clone()),
+                (_, Some(path)) => Some(std::fs::read_to_string(path)?),
+                _ => None,
+            };
+            let req = SetMetadataRequest {
+                title: args.title.clone(),
+                lyrics,
+                caption: args.caption.clone(),
+                remove_image_cover: if args.remove_cover { Some(true) } else { None },
+                remove_video_cover: None,
+            };
+            client()?.set_metadata(&args.id, &req).await?;
+            let mut changes = Vec::new();
+            if args.title.is_some() {
+                changes.push("title");
+            }
+            if args.lyrics.is_some() || args.lyrics_file.is_some() {
+                changes.push("lyrics");
+            }
+            if args.caption.is_some() {
+                changes.push("caption");
+            }
+            if args.remove_cover {
+                changes.push("cover removed");
+            }
+            eprintln!("Updated: {}", changes.join(", "));
+        }
+
+        Commands::Publish(args) => {
+            let c = client()?;
+            let is_public = !args.private;
+            for id in &args.ids {
+                c.set_visibility(id, is_public).await?;
+            }
+            let state = if is_public { "public" } else { "private" };
+            eprintln!("Set {} clip(s) to {state}", args.ids.len());
+        }
+
+        Commands::TimedLyrics(args) => {
+            let words = client()?.aligned_lyrics(&args.id).await?;
+            if args.lrc {
+                // LRC format: [mm:ss.xx] word
+                for w in &words {
+                    if !w.success {
+                        continue;
+                    }
+                    let mins = (w.start_s / 60.0) as u32;
+                    let secs = w.start_s % 60.0;
+                    println!("[{:02}:{:05.2}] {}", mins, secs, w.word);
+                }
+            } else {
+                match fmt {
+                    OutputFormat::Json => output::json::success(&words),
+                    OutputFormat::Table => {
+                        for w in &words {
+                            if w.success {
+                                println!("{:>6.2}s - {:>6.2}s  {}", w.start_s, w.end_s, w.word);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         Commands::Config(args) => match args.action {
@@ -399,7 +498,8 @@ async fn run() -> Result<(), CliError> {
                 "commands": [
                     "generate", "describe", "lyrics", "extend", "concat",
                     "cover", "remaster", "stems", "list", "search", "status",
-                    "download", "delete", "credits", "models", "auth", "config", "agent-info"
+                    "download", "delete", "set", "publish", "timed-lyrics",
+                    "credits", "models", "auth", "config", "agent-info"
                 ],
                 "models": {
                     "v5.5": "chirp-fenix",
@@ -409,10 +509,13 @@ async fn run() -> Result<(), CliError> {
                     "v4": "chirp-v4",
                 },
                 "features": [
-                    "tags", "negative_tags", "vocal_gender", "weirdness",
-                    "style_influence", "variation_category", "instrumental",
-                    "extend", "concat", "cover", "remaster", "stems", "lyrics",
-                    "search", "delete"
+                    "tags", "negative_tags", "vocal_gender",
+                    "weirdness (metadata.control_sliders.weirdness_constraint)",
+                    "style_influence (metadata.control_sliders.style_weight)",
+                    "instrumental", "extend", "concat", "cover", "remaster",
+                    "stems", "lyrics", "timed_lyrics", "set_metadata",
+                    "set_visibility", "search", "delete", "captcha_check",
+                    "id3_lyrics_embedding"
                 ],
                 "env_prefix": "SUNO_",
                 "auth_required": true,
