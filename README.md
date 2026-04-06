@@ -78,20 +78,22 @@ suno generate \
 ## Commands
 
 ```
-suno generate       Custom mode — lyrics + tags + title + sliders
-suno inspire        Description mode — Suno writes lyrics from your prompt
-suno lyrics         Generate lyrics only (free, no credits)
-suno extend         Continue a clip from a timestamp
-suno concat         Stitch clips into a full song
-suno cover          Create a cover with different style
-suno remaster       Remaster with a different model
-suno stems          Extract vocals and instruments
-suno feed           List your songs
-suno status <id>    Check generation progress
-suno download <id>  Download audio/video
-suno credits        Show balance and plan info
-suno models         List available models with limits
-suno auth           Set up authentication
+suno generate        Custom mode — lyrics + tags + title + sliders
+suno describe        Description mode — Suno writes lyrics from your prompt
+suno lyrics          Generate lyrics only (free, no credits)
+suno extend          Continue a clip from a timestamp
+suno concat          Stitch clips into a full song
+suno cover           Create a cover with different style
+suno remaster        Remaster with a different model
+suno stems           Extract vocals and instruments
+suno list            List your songs
+suno search <query>  Search songs by title or tags
+suno status <id>     Check generation progress
+suno download <ids>  Download audio/video (multiple IDs supported)
+suno delete <ids>    Delete/trash clips
+suno credits         Show balance and plan info
+suno models          List available models with limits
+suno auth            Set up authentication
 suno config         show | set | check
 suno agent-info     Machine-readable capabilities JSON
 ```

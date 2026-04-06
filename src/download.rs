@@ -18,18 +18,17 @@ pub async fn download_clip(clip: &Clip, output_dir: &str, video: bool) -> Result
     };
 
     let ext = if video { "mp4" } else { "mp3" };
-    let safe_title: String = clip
+    let slug: String = clip
         .title
+        .to_lowercase()
         .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == ' ' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let filename = format!("{safe_title}.{ext}");
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .replace("--", "-")
+        .trim_matches('-')
+        .to_string();
+    let short_id = &clip.id[..8.min(clip.id.len())];
+    let filename = format!("{slug}-{short_id}.{ext}");
     let path = Path::new(output_dir).join(&filename);
 
     let client = reqwest::Client::new();

@@ -65,7 +65,7 @@ pub struct RemasterModelInfo {
 
 // --- Clips / Feed ---
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Clip {
     pub id: String,
     pub title: String,
@@ -83,7 +83,7 @@ pub struct Clip {
     pub metadata: ClipMetadata,
 }
 
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ClipMetadata {
     pub tags: Option<String>,
     pub prompt: Option<String>,

@@ -25,7 +25,7 @@ pub enum Commands {
     Generate(GenerateArgs),
 
     /// Generate music from a text description (Suno writes lyrics)
-    Inspire(InspireArgs),
+    Describe(DescribeArgs),
 
     /// Generate lyrics only (free, no credits used)
     Lyrics(LyricsArgs),
@@ -46,13 +46,19 @@ pub enum Commands {
     Stems(StemsArgs),
 
     /// List your songs
-    Feed(FeedArgs),
+    List(ListArgs),
+
+    /// Search your songs by title or tags
+    Search(SearchArgs),
 
     /// Check generation status
     Status(StatusArgs),
 
-    /// Download audio/video for a clip
+    /// Download audio/video for clip(s)
     Download(DownloadArgs),
+
+    /// Delete/trash a clip
+    Delete(DeleteArgs),
 
     /// Show credit balance and plan info
     Credits,
@@ -130,7 +136,7 @@ pub struct GenerateArgs {
 }
 
 #[derive(clap::Args)]
-pub struct InspireArgs {
+pub struct DescribeArgs {
     /// Description of the song you want
     #[arg(short, long)]
     pub prompt: String,
@@ -246,10 +252,26 @@ pub struct StemsArgs {
 }
 
 #[derive(clap::Args)]
-pub struct FeedArgs {
+pub struct ListArgs {
     /// Page number (0-indexed)
     #[arg(short, long, default_value = "0")]
     pub page: u32,
+}
+
+#[derive(clap::Args)]
+pub struct SearchArgs {
+    /// Search query (matches title and tags)
+    pub query: String,
+}
+
+#[derive(clap::Args)]
+pub struct DeleteArgs {
+    /// Clip ID(s) to delete
+    pub ids: Vec<String>,
+
+    /// Skip confirmation
+    #[arg(short = 'y', long)]
+    pub yes: bool,
 }
 
 #[derive(clap::Args)]
@@ -260,8 +282,8 @@ pub struct StatusArgs {
 
 #[derive(clap::Args)]
 pub struct DownloadArgs {
-    /// Clip ID to download
-    pub id: String,
+    /// Clip ID(s) to download
+    pub ids: Vec<String>,
 
     /// Output directory
     #[arg(short, long, default_value = ".")]

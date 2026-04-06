@@ -37,6 +37,52 @@ fn build_tags(tags: Option<&str>, vocal: Option<&VocalGender>) -> Option<String>
     }
 }
 
+/// Generate, wait, optionally download — shared by generate/describe/extend.
+async fn handle_generation(
+    c: &SunoClient,
+    clips: Vec<api::types::Clip>,
+    wait: bool,
+    download_dir: Option<&str>,
+    fmt: &OutputFormat,
+    quiet: bool,
+) -> Result<(), CliError> {
+    let ids: Vec<String> = clips.iter().map(|c| c.id.clone()).collect();
+
+    if wait && !ids.is_empty() {
+        if !quiet {
+            eprintln!("Waiting for generation to complete...");
+        }
+        let final_clips = c.poll_clips(&ids, 600).await?;
+
+        if let Some(dir) = download_dir {
+            for clip in &final_clips {
+                if clip.status == "complete" {
+                    let path = download::download_clip(clip, dir, false).await?;
+                    if !quiet {
+                        eprintln!("Downloaded: {path}");
+                    }
+                }
+            }
+        }
+
+        match fmt {
+            OutputFormat::Json => output::json::success(&final_clips),
+            OutputFormat::Table => output::table::clips(&final_clips),
+        }
+    } else {
+        match fmt {
+            OutputFormat::Json => output::json::success(&clips),
+            OutputFormat::Table => {
+                output::table::clips(&clips);
+                if !ids.is_empty() {
+                    eprintln!("\nUse `suno status {}` to check progress", ids.join(" "));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn run() -> Result<(), CliError> {
     let cli = Cli::parse();
     let fmt = OutputFormat::detect(cli.json);
@@ -58,7 +104,6 @@ async fn run() -> Result<(), CliError> {
             }
             state.save()?;
 
-            // Verify by fetching billing info
             let client = SunoClient::new(state)?;
             let info = client.billing_info().await?;
             eprintln!(
@@ -83,11 +128,49 @@ async fn run() -> Result<(), CliError> {
             }
         }
 
-        Commands::Feed(args) => {
+        Commands::List(args) => {
             let feed = client()?.feed(args.page).await?;
             match fmt {
                 OutputFormat::Json => output::json::success(&feed.clips),
                 OutputFormat::Table => output::table::clips(&feed.clips),
+            }
+        }
+
+        Commands::Search(args) => {
+            // Search across all pages for matching clips
+            let c = client()?;
+            let mut found = Vec::new();
+            let mut page = 0u32;
+            let query_lower = args.query.to_lowercase();
+            loop {
+                let feed = c.feed(page).await?;
+                for clip in &feed.clips {
+                    let title_match = clip.title.to_lowercase().contains(&query_lower);
+                    let tag_match = clip
+                        .metadata
+                        .tags
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&query_lower);
+                    if title_match || tag_match {
+                        found.push(clip.clone());
+                    }
+                }
+                if !feed.has_more || page > 10 {
+                    break;
+                }
+                page += 1;
+            }
+            match fmt {
+                OutputFormat::Json => output::json::success(&found),
+                OutputFormat::Table => {
+                    if found.is_empty() {
+                        eprintln!("No clips matching \"{}\"", args.query);
+                    } else {
+                        output::table::clips(&found);
+                    }
+                }
             }
         }
 
@@ -108,9 +191,7 @@ async fn run() -> Result<(), CliError> {
                 (_, Some(path)) => Some(std::fs::read_to_string(path)?),
                 _ => None,
             };
-
             let tags = build_tags(args.tags.as_deref(), args.vocal.as_ref());
-
             let req = GenerateRequest {
                 mv: args.model.to_api_key().to_string(),
                 prompt: lyrics,
@@ -134,45 +215,19 @@ async fn run() -> Result<(), CliError> {
             }
             let c = client()?;
             let clips = c.generate(&req).await?;
-            let ids: Vec<String> = clips.iter().map(|c| c.id.clone()).collect();
-
-            if args.wait && !ids.is_empty() {
-                if !cli.quiet {
-                    eprintln!("Waiting for generation to complete...");
-                }
-                let final_clips = c.poll_clips(&ids, 600).await?;
-
-                if let Some(ref dir) = args.download {
-                    for clip in &final_clips {
-                        if clip.status == "complete" {
-                            let path = download::download_clip(clip, dir, false).await?;
-                            if !cli.quiet {
-                                eprintln!("Downloaded: {path}");
-                            }
-                        }
-                    }
-                }
-
-                match fmt {
-                    OutputFormat::Json => output::json::success(&final_clips),
-                    OutputFormat::Table => output::table::clips(&final_clips),
-                }
-            } else {
-                match fmt {
-                    OutputFormat::Json => output::json::success(&clips),
-                    OutputFormat::Table => {
-                        output::table::clips(&clips);
-                        if !ids.is_empty() {
-                            eprintln!("\nUse `suno status {}` to check progress", ids[0]);
-                        }
-                    }
-                }
-            }
+            handle_generation(
+                &c,
+                clips,
+                args.wait,
+                args.download.as_deref(),
+                &fmt,
+                cli.quiet,
+            )
+            .await?;
         }
 
-        Commands::Inspire(args) => {
+        Commands::Describe(args) => {
             let tags = build_tags(args.tags.as_deref(), args.vocal.as_ref());
-
             let req = GenerateRequest {
                 mv: args.model.to_api_key().to_string(),
                 prompt: Some(String::new()),
@@ -192,39 +247,19 @@ async fn run() -> Result<(), CliError> {
             };
 
             if !cli.quiet {
-                eprintln!("Submitting inspiration ({})...", args.model.display_name());
+                eprintln!("Submitting description ({})...", args.model.display_name());
             }
             let c = client()?;
             let clips = c.generate(&req).await?;
-            let ids: Vec<String> = clips.iter().map(|c| c.id.clone()).collect();
-
-            if args.wait && !ids.is_empty() {
-                if !cli.quiet {
-                    eprintln!("Waiting for generation to complete...");
-                }
-                let final_clips = c.poll_clips(&ids, 600).await?;
-
-                if let Some(ref dir) = args.download {
-                    for clip in &final_clips {
-                        if clip.status == "complete" {
-                            let path = download::download_clip(clip, dir, false).await?;
-                            if !cli.quiet {
-                                eprintln!("Downloaded: {path}");
-                            }
-                        }
-                    }
-                }
-
-                match fmt {
-                    OutputFormat::Json => output::json::success(&final_clips),
-                    OutputFormat::Table => output::table::clips(&final_clips),
-                }
-            } else {
-                match fmt {
-                    OutputFormat::Json => output::json::success(&clips),
-                    OutputFormat::Table => output::table::clips(&clips),
-                }
-            }
+            handle_generation(
+                &c,
+                clips,
+                args.wait,
+                args.download.as_deref(),
+                &fmt,
+                cli.quiet,
+            )
+            .await?;
         }
 
         Commands::Extend(args) => {
@@ -248,20 +283,7 @@ async fn run() -> Result<(), CliError> {
 
             let c = client()?;
             let clips = c.generate(&req).await?;
-
-            if args.wait {
-                let ids: Vec<String> = clips.iter().map(|c| c.id.clone()).collect();
-                let final_clips = c.poll_clips(&ids, 600).await?;
-                match fmt {
-                    OutputFormat::Json => output::json::success(&final_clips),
-                    OutputFormat::Table => output::table::clips(&final_clips),
-                }
-            } else {
-                match fmt {
-                    OutputFormat::Json => output::json::success(&clips),
-                    OutputFormat::Table => output::table::clips(&clips),
-                }
-            }
+            handle_generation(&c, clips, args.wait, None, &fmt, cli.quiet).await?;
         }
 
         Commands::Concat(args) => {
@@ -307,15 +329,44 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Download(args) => {
-            let clips = client()?.get_clips(&[args.id.clone()]).await?;
-            let clip = clips
-                .first()
-                .ok_or_else(|| CliError::NotFound(format!("clip {}", args.id)))?;
-            let path = download::download_clip(clip, &args.output, args.video).await?;
-            match fmt {
-                OutputFormat::Json => output::json::success(&serde_json::json!({ "path": path })),
-                OutputFormat::Table => println!("Downloaded: {path}"),
+            let c = client()?;
+            let clips = c.get_clips(&args.ids).await?;
+            if clips.is_empty() {
+                return Err(CliError::NotFound(format!(
+                    "clips: {}",
+                    args.ids.join(", ")
+                )));
             }
+            let mut paths = Vec::new();
+            for clip in &clips {
+                let path = download::download_clip(clip, &args.output, args.video).await?;
+                if !cli.quiet {
+                    eprintln!("Downloaded: {path}");
+                }
+                paths.push(path);
+            }
+            match fmt {
+                OutputFormat::Json => output::json::success(&paths),
+                OutputFormat::Table => {}
+            }
+        }
+
+        Commands::Delete(args) => {
+            if args.ids.is_empty() {
+                return Err(CliError::Config("no clip IDs provided".into()));
+            }
+            if !args.yes {
+                eprintln!(
+                    "Deleting {} clip(s): {}",
+                    args.ids.len(),
+                    args.ids.join(", ")
+                );
+                eprintln!("Use -y to skip confirmation, or press Ctrl+C to cancel");
+                // Give 2 seconds to cancel
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+            client()?.delete_clips(&args.ids).await?;
+            eprintln!("Deleted {} clip(s)", args.ids.len());
         }
 
         Commands::Config(args) => match args.action {
@@ -346,9 +397,9 @@ async fn run() -> Result<(), CliError> {
                 "name": "suno",
                 "version": env!("CARGO_PKG_VERSION"),
                 "commands": [
-                    "generate", "inspire", "lyrics", "extend", "concat",
-                    "cover", "remaster", "stems", "feed", "status",
-                    "download", "credits", "models", "auth", "config", "agent-info"
+                    "generate", "describe", "lyrics", "extend", "concat",
+                    "cover", "remaster", "stems", "list", "search", "status",
+                    "download", "delete", "credits", "models", "auth", "config", "agent-info"
                 ],
                 "models": {
                     "v5.5": "chirp-fenix",
@@ -360,7 +411,8 @@ async fn run() -> Result<(), CliError> {
                 "features": [
                     "tags", "negative_tags", "vocal_gender", "weirdness",
                     "style_influence", "variation_category", "instrumental",
-                    "extend", "concat", "cover", "remaster", "stems", "lyrics"
+                    "extend", "concat", "cover", "remaster", "stems", "lyrics",
+                    "search", "delete"
                 ],
                 "env_prefix": "SUNO_",
                 "auth_required": true,
