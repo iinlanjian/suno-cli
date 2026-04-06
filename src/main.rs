@@ -15,9 +15,9 @@ use cli::*;
 use errors::CliError;
 use output::OutputFormat;
 
-fn client() -> Result<SunoClient, CliError> {
+async fn client() -> Result<SunoClient, CliError> {
     let auth = AuthState::load()?;
-    SunoClient::new(auth)
+    SunoClient::new_with_refresh(auth).await
 }
 
 fn build_tags(tags: Option<&str>, vocal: Option<&VocalGender>) -> Option<String> {
@@ -119,21 +119,47 @@ async fn run() -> Result<(), CliError> {
     match cli.command {
         Commands::Auth(args) => {
             let mut state = AuthState::load().unwrap_or_default();
-            if let Some(jwt) = args.jwt {
+
+            if args.login {
+                // Automatic: extract cookies from browser
+                eprintln!("Extracting Suno session from your browser...");
+                let clerk_cookie = auth::extract_clerk_cookie()?;
+
+                let http = reqwest::Client::new();
+                eprintln!("Exchanging for access token via Clerk...");
+                let (session_id, jwt) = auth::clerk_token_exchange(&http, &clerk_cookie).await?;
+
+                state.clerk_client_cookie = Some(clerk_cookie);
+                state.session_id = Some(session_id);
+                state.jwt = Some(jwt);
+                if state.device_id.is_none() {
+                    state.device_id = Some(uuid::Uuid::new_v4().to_string());
+                }
+            } else if let Some(cookie) = args.cookie {
+                // Manual: user provides Clerk __client cookie
+                let http = reqwest::Client::new();
+                eprintln!("Exchanging cookie for access token...");
+                let (session_id, jwt) = auth::clerk_token_exchange(&http, &cookie).await?;
+
+                state.clerk_client_cookie = Some(cookie);
+                state.session_id = Some(session_id);
+                state.jwt = Some(jwt);
+                if state.device_id.is_none() {
+                    state.device_id = Some(uuid::Uuid::new_v4().to_string());
+                }
+            } else if let Some(jwt) = args.jwt {
+                // Legacy: direct JWT paste (expires in ~1 hour)
                 state.jwt = Some(jwt);
             }
-            if let Some(cookie) = args.cookie {
-                state.cookie = Some(cookie);
-            }
-            if let Some(session) = args.session {
-                state.session_id = Some(session);
-            }
+
             if let Some(device) = args.device {
                 state.device_id = Some(device);
             }
+
             state.save()?;
 
-            let client = SunoClient::new(state)?;
+            // Verify
+            let client = SunoClient::new_with_refresh(state).await?;
             let info = client.billing_info().await?;
             eprintln!(
                 "Authenticated! Plan: {}, Credits: {}",
@@ -142,7 +168,7 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Credits => {
-            let info = client()?.billing_info().await?;
+            let info = client().await?.billing_info().await?;
             match fmt {
                 OutputFormat::Json => output::json::success(&info),
                 OutputFormat::Table => output::table::billing(&info),
@@ -150,7 +176,7 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Models => {
-            let info = client()?.billing_info().await?;
+            let info = client().await?.billing_info().await?;
             match fmt {
                 OutputFormat::Json => output::json::success(&info.models),
                 OutputFormat::Table => output::table::models(&info.models),
@@ -158,7 +184,7 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::List(args) => {
-            let feed = client()?.feed(args.page).await?;
+            let feed = client().await?.feed(args.page).await?;
             match fmt {
                 OutputFormat::Json => output::json::success(&feed.clips),
                 OutputFormat::Table => output::table::clips(&feed.clips),
@@ -166,7 +192,7 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Search(args) => {
-            let feed = client()?.search(&args.query).await?;
+            let feed = client().await?.search(&args.query).await?;
             match fmt {
                 OutputFormat::Json => output::json::success(&feed.clips),
                 OutputFormat::Table => {
@@ -183,7 +209,7 @@ async fn run() -> Result<(), CliError> {
             if !cli.quiet {
                 eprintln!("Generating lyrics...");
             }
-            let result = client()?.generate_lyrics(&args.prompt).await?;
+            let result = client().await?.generate_lyrics(&args.prompt).await?;
             match fmt {
                 OutputFormat::Json => output::json::success(&result),
                 OutputFormat::Table => output::table::lyrics(&result),
@@ -199,7 +225,7 @@ async fn run() -> Result<(), CliError> {
             let tags = build_tags(args.tags.as_deref(), args.vocal.as_ref());
             let metadata = build_metadata(args.weirdness, args.style_influence);
 
-            let c = client()?;
+            let c = client().await?;
 
             // Check captcha before generating
             if let Ok(captcha_needed) = c.check_captcha().await {
@@ -269,7 +295,7 @@ async fn run() -> Result<(), CliError> {
             if !cli.quiet {
                 eprintln!("Submitting description ({})...", args.model.display_name());
             }
-            let c = client()?;
+            let c = client().await?;
             let clips = c.generate(&req).await?;
             handle_generation(
                 &c,
@@ -299,13 +325,13 @@ async fn run() -> Result<(), CliError> {
                 metadata: None,
             };
 
-            let c = client()?;
+            let c = client().await?;
             let clips = c.generate(&req).await?;
             handle_generation(&c, clips, args.wait, None, &fmt, cli.quiet).await?;
         }
 
         Commands::Concat(args) => {
-            let clip = client()?.concat(&args.clip_id).await?;
+            let clip = client().await?.concat(&args.clip_id).await?;
             match fmt {
                 OutputFormat::Json => output::json::success(&clip),
                 OutputFormat::Table => output::table::clips(&[clip]),
@@ -313,7 +339,10 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Cover(args) => {
-            let clip = client()?.cover(&args.clip_id, args.tags.as_deref()).await?;
+            let clip = client()
+                .await?
+                .cover(&args.clip_id, args.tags.as_deref())
+                .await?;
             match fmt {
                 OutputFormat::Json => output::json::success(&clip),
                 OutputFormat::Table => output::table::clips(&[clip]),
@@ -321,7 +350,8 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Remaster(args) => {
-            let clip = client()?
+            let clip = client()
+                .await?
                 .remaster(&args.clip_id, args.model.to_api_key())
                 .await?;
             match fmt {
@@ -331,7 +361,7 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Stems(args) => {
-            let clip = client()?.stems(&args.clip_id).await?;
+            let clip = client().await?.stems(&args.clip_id).await?;
             match fmt {
                 OutputFormat::Json => output::json::success(&clip),
                 OutputFormat::Table => output::table::clips(&[clip]),
@@ -339,7 +369,7 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Status(args) => {
-            let clips = client()?.get_clips(&args.ids).await?;
+            let clips = client().await?.get_clips(&args.ids).await?;
             match fmt {
                 OutputFormat::Json => output::json::success(&clips),
                 OutputFormat::Table => output::table::clips(&clips),
@@ -347,7 +377,7 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Download(args) => {
-            let c = client()?;
+            let c = client().await?;
             let clips = c.get_clips(&args.ids).await?;
             if clips.is_empty() {
                 return Err(CliError::NotFound(format!(
@@ -398,7 +428,7 @@ async fn run() -> Result<(), CliError> {
                 eprintln!("Use -y to skip confirmation, or press Ctrl+C to cancel");
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
-            client()?.delete_clips(&args.ids).await?;
+            client().await?.delete_clips(&args.ids).await?;
             eprintln!("Deleted {} clip(s)", args.ids.len());
         }
 
@@ -415,7 +445,7 @@ async fn run() -> Result<(), CliError> {
                 remove_image_cover: if args.remove_cover { Some(true) } else { None },
                 remove_video_cover: None,
             };
-            client()?.set_metadata(&args.id, &req).await?;
+            client().await?.set_metadata(&args.id, &req).await?;
             let mut changes = Vec::new();
             if args.title.is_some() {
                 changes.push("title");
@@ -433,7 +463,7 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Publish(args) => {
-            let c = client()?;
+            let c = client().await?;
             let is_public = !args.private;
             for id in &args.ids {
                 c.set_visibility(id, is_public).await?;
@@ -443,7 +473,7 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::TimedLyrics(args) => {
-            let words = client()?.aligned_lyrics(&args.id).await?;
+            let words = client().await?.aligned_lyrics(&args.id).await?;
             if args.lrc {
                 // LRC format: [mm:ss.xx] word
                 for w in &words {

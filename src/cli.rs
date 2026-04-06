@@ -351,17 +351,17 @@ pub struct TimedLyricsArgs {
 
 #[derive(clap::Args)]
 pub struct AuthArgs {
-    /// JWT token from browser DevTools
+    /// Auto-extract from browser (recommended)
+    #[arg(long)]
+    pub login: bool,
+
+    /// JWT token (manual fallback)
     #[arg(long)]
     pub jwt: Option<String>,
 
-    /// Browser cookie string (for persistent auth)
+    /// Clerk __client cookie (manual fallback for headless servers)
     #[arg(long)]
     pub cookie: Option<String>,
-
-    /// Clerk session ID
-    #[arg(long)]
-    pub session: Option<String>,
 
     /// Device ID
     #[arg(long)]

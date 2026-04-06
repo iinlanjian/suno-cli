@@ -23,25 +23,45 @@ pub struct SunoClient {
 const BASE_URL: &str = "https://studio-api-prod.suno.com";
 
 impl SunoClient {
-    pub fn new(auth: AuthState) -> Result<Self, CliError> {
-        if auth.is_jwt_expired() {
-            return Err(CliError::AuthExpired);
-        }
+    /// Create a new client. If JWT is expired but we have a Clerk cookie,
+    /// auto-refresh the JWT transparently.
+    pub async fn new_with_refresh(mut auth: AuthState) -> Result<Self, CliError> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
             .build()
             .map_err(|e| CliError::Config(format!("HTTP client: {e}")))?;
+
+        if auth.is_jwt_expired() {
+            // Try auto-refresh via Clerk cookie
+            if let (Some(cookie), Some(session_id)) = (&auth.clerk_client_cookie, &auth.session_id)
+            {
+                eprintln!("JWT expired, refreshing via Clerk...");
+                match auth::clerk_refresh_jwt(&client, cookie, session_id).await {
+                    Ok(jwt) => {
+                        auth.jwt = Some(jwt);
+                        auth.save()?;
+                        eprintln!("JWT refreshed successfully");
+                    }
+                    Err(_) => {
+                        return Err(CliError::AuthExpired);
+                    }
+                }
+            } else {
+                return Err(CliError::AuthExpired);
+            }
+        }
+
         Ok(Self { client, auth })
     }
 
-    fn get(&self, path: &str) -> reqwest::RequestBuilder {
+    pub(crate) fn get(&self, path: &str) -> reqwest::RequestBuilder {
         self.client
             .get(format!("{BASE_URL}{path}"))
             .headers(self.headers())
     }
 
-    fn post(&self, path: &str) -> reqwest::RequestBuilder {
+    pub(crate) fn post(&self, path: &str) -> reqwest::RequestBuilder {
         self.client
             .post(format!("{BASE_URL}{path}"))
             .headers(self.headers())

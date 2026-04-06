@@ -6,12 +6,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::errors::CliError;
 
+const CLERK_BASE: &str = "https://auth.suno.com";
+const CLERK_JS_VERSION: &str = "5.117.0";
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct AuthState {
     pub jwt: Option<String>,
     pub cookie: Option<String>,
     pub session_id: Option<String>,
     pub device_id: Option<String>,
+    /// The __client cookie from clerk domain — long-lived (~7 days)
+    pub clerk_client_cookie: Option<String>,
 }
 
 impl AuthState {
@@ -55,7 +60,6 @@ impl AuthState {
         if parts.len() != 3 {
             return true;
         }
-        // Decode claims (with padding tolerance)
         let claims = parts[1];
         let padded = match claims.len() % 4 {
             2 => format!("{claims}=="),
@@ -75,7 +79,8 @@ impl AuthState {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        now >= exp
+        // Expired or within 30 seconds of expiry
+        now + 30 >= exp
     }
 
     fn path() -> PathBuf {
@@ -86,7 +91,6 @@ impl AuthState {
 }
 
 /// Generate the dynamic browser-token header value.
-/// Format: {"token":"<base64({"timestamp":<epoch_ms>})>"}
 pub fn browser_token() -> String {
     let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -95,4 +99,113 @@ pub fn browser_token() -> String {
     let payload = format!(r#"{{"timestamp":{ms}}}"#);
     let encoded = BASE64.encode(payload.as_bytes());
     format!(r#"{{"token":"{encoded}"}}"#)
+}
+
+/// Extract the __client cookie for auth.suno.com from the user's browsers.
+/// Tries Chrome, Firefox, Safari, Arc, Brave, Edge in order.
+pub fn extract_clerk_cookie() -> Result<String, CliError> {
+    let domains = Some(vec!["auth.suno.com".to_string(), ".suno.com".to_string()]);
+
+    // Each closure calls a different browser extractor
+    let browsers: &[(&str, &dyn Fn() -> eyre::Result<Vec<rookie::enums::Cookie>>)] = &[
+        ("Chrome", &|| {
+            rookie::chrome(Some(vec!["auth.suno.com".into(), ".suno.com".into()]))
+        }),
+        ("Arc", &|| {
+            rookie::arc(Some(vec!["auth.suno.com".into(), ".suno.com".into()]))
+        }),
+        ("Brave", &|| {
+            rookie::brave(Some(vec!["auth.suno.com".into(), ".suno.com".into()]))
+        }),
+        ("Firefox", &|| {
+            rookie::firefox(Some(vec!["auth.suno.com".into(), ".suno.com".into()]))
+        }),
+        ("Edge", &|| {
+            rookie::edge(Some(vec!["auth.suno.com".into(), ".suno.com".into()]))
+        }),
+    ];
+    let _ = domains; // suppress unused warning
+
+    for (name, extract_fn) in browsers {
+        if let Ok(cookies) = extract_fn() {
+            for cookie in &cookies {
+                if cookie.name == "__client" && !cookie.value.is_empty() {
+                    eprintln!("Found Suno session in {name}");
+                    return Ok(cookie.value.clone());
+                }
+            }
+        }
+    }
+
+    Err(CliError::Config(
+        "No Suno session found in any browser. Log into suno.com first, then retry.".into(),
+    ))
+}
+
+/// Exchange the __client cookie for a session ID and JWT via Clerk.
+pub async fn clerk_token_exchange(
+    client: &reqwest::Client,
+    clerk_cookie: &str,
+) -> Result<(String, String), CliError> {
+    // Step 1: Get session ID
+    let resp = client
+        .get(format!(
+            "{CLERK_BASE}/v1/client?_clerk_js_version={CLERK_JS_VERSION}"
+        ))
+        .header("cookie", format!("__client={clerk_cookie}"))
+        .send()
+        .await
+        .map_err(CliError::Http)?;
+
+    if !resp.status().is_success() {
+        return Err(CliError::AuthExpired);
+    }
+
+    let body: serde_json::Value = resp.json().await.map_err(CliError::Http)?;
+    let session_id = body
+        .get("response")
+        .and_then(|r| r.get("last_active_session_id"))
+        .and_then(|s| s.as_str())
+        .ok_or_else(|| CliError::Api {
+            code: "no_session",
+            message: "No active session found — log into suno.com in your browser first".into(),
+        })?
+        .to_string();
+
+    // Step 2: Exchange for JWT
+    let jwt = clerk_refresh_jwt(client, clerk_cookie, &session_id).await?;
+
+    Ok((session_id, jwt))
+}
+
+/// Refresh JWT using stored Clerk cookie + session ID.
+pub async fn clerk_refresh_jwt(
+    client: &reqwest::Client,
+    clerk_cookie: &str,
+    session_id: &str,
+) -> Result<String, CliError> {
+    let resp = client
+        .post(format!(
+            "{CLERK_BASE}/v1/client/sessions/{session_id}/tokens?_clerk_js_version={CLERK_JS_VERSION}"
+        ))
+        .header("cookie", format!("__client={clerk_cookie}"))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .send()
+        .await
+        .map_err(CliError::Http)?;
+
+    if !resp.status().is_success() {
+        return Err(CliError::AuthExpired);
+    }
+
+    let body: serde_json::Value = resp.json().await.map_err(CliError::Http)?;
+    body.get("jwt")
+        .and_then(|j| j.as_str())
+        .map(String::from)
+        .ok_or_else(|| CliError::Api {
+            code: "no_jwt",
+            message:
+                "Clerk returned no JWT — session may have expired, run `suno auth login` again"
+                    .into(),
+        })
 }
