@@ -1,0 +1,90 @@
+pub mod billing;
+pub mod concat;
+pub mod cover;
+pub mod feed;
+pub mod generate;
+pub mod lyrics;
+pub mod remaster;
+pub mod stems;
+pub mod types;
+
+use reqwest::Client;
+
+use crate::auth::{self, AuthState};
+use crate::errors::CliError;
+
+pub struct SunoClient {
+    client: Client,
+    auth: AuthState,
+}
+
+const BASE_URL: &str = "https://studio-api-prod.suno.com";
+
+impl SunoClient {
+    pub fn new(auth: AuthState) -> Result<Self, CliError> {
+        if auth.is_jwt_expired() {
+            return Err(CliError::AuthExpired);
+        }
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
+            .build()
+            .map_err(|e| CliError::Config(format!("HTTP client: {e}")))?;
+        Ok(Self { client, auth })
+    }
+
+    fn get(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .get(format!("{BASE_URL}{path}"))
+            .headers(self.headers())
+    }
+
+    fn post(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .post(format!("{BASE_URL}{path}"))
+            .headers(self.headers())
+    }
+
+    fn headers(&self) -> reqwest::header::HeaderMap {
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Ok(jwt) = self.auth.jwt() {
+            if let Ok(val) = format!("Bearer {jwt}").parse() {
+                headers.insert("authorization", val);
+            }
+        }
+        if let Ok(val) = self.auth.device_id().parse() {
+            headers.insert("device-id", val);
+        }
+        if let Ok(val) = auth::browser_token().parse() {
+            headers.insert("browser-token", val);
+        }
+        if let Ok(val) = "https://suno.com".parse() {
+            headers.insert("origin", val);
+        }
+        if let Ok(val) = "https://suno.com/".parse() {
+            headers.insert("referer", val);
+        }
+        headers
+    }
+
+    pub async fn check_response(
+        &self,
+        resp: reqwest::Response,
+    ) -> Result<reqwest::Response, CliError> {
+        let status = resp.status();
+        if status == 401 || status == 403 {
+            return Err(CliError::AuthExpired);
+        }
+        if status == 429 {
+            return Err(CliError::RateLimited);
+        }
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(CliError::Api {
+                code: "api_error",
+                message: format!("HTTP {status}: {body}"),
+            });
+        }
+        Ok(resp)
+    }
+}
