@@ -19,13 +19,14 @@ pub fn success<T: Serialize>(data: T) {
     );
 }
 
-pub fn error(code: &str, message: &str) {
+pub fn error(code: &str, message: &str, suggestion: &str) {
     let envelope = serde_json::json!({
         "version": "1",
         "status": "error",
         "error": {
             "code": code,
             "message": message,
+            "suggestion": suggestion,
         }
     });
     eprintln!(

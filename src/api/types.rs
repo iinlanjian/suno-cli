@@ -165,6 +165,12 @@ pub struct GenerateRequest {
     pub continue_at: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
+    /// Voice persona ID — used with task="vox"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<String>,
+    /// Source clip for covers/remasters — used with task="cover"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_clip_id: Option<String>,
     /// Control sliders — nested correctly under metadata per xiliourt/Suno-Architect
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<GenerateMetadata>,
@@ -264,19 +270,24 @@ pub struct ConcatRequest {
     pub clip_id: String,
 }
 
-// --- Cover ---
+// --- Persona ---
 
-#[derive(Debug, Serialize)]
-pub struct CoverRequest {
-    pub clip_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tags: Option<String>,
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PersonaResponse {
+    #[serde(default)]
+    pub items: Vec<PersonaInfo>,
 }
 
-// --- Remaster ---
-
-#[derive(Debug, Serialize)]
-pub struct RemasterRequest {
-    pub clip_id: String,
-    pub remaster_model: String,
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PersonaInfo {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub image_url: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub num_clips: u64,
 }

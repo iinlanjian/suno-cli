@@ -229,17 +229,22 @@ async fn run() -> Result<(), CliError> {
 
             // Check captcha before generating
             if let Ok(captcha_needed) = c.check_captcha().await {
-                if captcha_needed {
-                    if args.token.is_none() {
-                        eprintln!(
-                            "Warning: captcha required. Use --token <hcaptcha_token> or solve captcha in browser."
-                        );
-                        eprintln!(
-                            "Tip: Premier accounts with 200+ credits consumed usually skip captcha."
-                        );
-                    }
+                if captcha_needed && args.token.is_none() {
+                    eprintln!(
+                        "Warning: captcha required. Use --token <hcaptcha_token> or solve captcha in browser."
+                    );
+                    eprintln!(
+                        "Tip: Premier accounts with 200+ credits consumed usually skip captcha."
+                    );
                 }
             }
+
+            // If persona specified, use task="vox"
+            let (task, persona_id) = if let Some(ref pid) = args.persona {
+                (Some("vox".to_string()), Some(pid.clone()))
+            } else {
+                (None, None)
+            };
 
             let req = GenerateRequest {
                 mv: args.model.to_api_key().to_string(),
@@ -253,12 +258,22 @@ async fn run() -> Result<(), CliError> {
                 token: args.token,
                 continue_clip_id: None,
                 continue_at: None,
-                task: None,
+                task,
+                persona_id,
+                cover_clip_id: None,
                 metadata,
             };
 
             if !cli.quiet {
-                eprintln!("Submitting generation ({})...", args.model.display_name());
+                let persona_note = if args.persona.is_some() {
+                    " with voice persona"
+                } else {
+                    ""
+                };
+                eprintln!(
+                    "Submitting generation ({}{persona_note})...",
+                    args.model.display_name()
+                );
             }
             let clips = c.generate(&req).await?;
             handle_generation(
@@ -276,6 +291,12 @@ async fn run() -> Result<(), CliError> {
             let tags = build_tags(args.tags.as_deref(), args.vocal.as_ref());
             let metadata = build_metadata(args.weirdness, args.style_influence);
 
+            let (task, persona_id) = if let Some(ref pid) = args.persona {
+                (Some("vox".to_string()), Some(pid.clone()))
+            } else {
+                (None, None)
+            };
+
             let req = GenerateRequest {
                 mv: args.model.to_api_key().to_string(),
                 prompt: Some(String::new()),
@@ -288,7 +309,9 @@ async fn run() -> Result<(), CliError> {
                 token: None,
                 continue_clip_id: None,
                 continue_at: None,
-                task: None,
+                task,
+                persona_id,
+                cover_clip_id: None,
                 metadata,
             };
 
@@ -322,6 +345,8 @@ async fn run() -> Result<(), CliError> {
                 continue_clip_id: Some(args.clip_id),
                 continue_at: Some(args.at),
                 task: None,
+                persona_id: None,
+                cover_clip_id: None,
                 metadata: None,
             };
 
@@ -339,25 +364,25 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Cover(args) => {
-            let clip = client()
-                .await?
-                .cover(&args.clip_id, args.tags.as_deref())
-                .await?;
-            match fmt {
-                OutputFormat::Json => output::json::success(&clip),
-                OutputFormat::Table => output::table::clips(&[clip]),
+            if !cli.quiet {
+                eprintln!("Creating cover ({})...", args.model.display_name());
             }
+            let c = client().await?;
+            let clips = c
+                .cover(&args.clip_id, args.model.to_api_key(), args.tags.as_deref())
+                .await?;
+            handle_generation(&c, clips, args.wait, args.download.as_deref(), &fmt, cli.quiet)
+                .await?;
         }
 
         Commands::Remaster(args) => {
-            let clip = client()
-                .await?
-                .remaster(&args.clip_id, args.model.to_api_key())
-                .await?;
-            match fmt {
-                OutputFormat::Json => output::json::success(&clip),
-                OutputFormat::Table => output::table::clips(&[clip]),
+            if !cli.quiet {
+                eprintln!("Remastering with {}...", args.model.to_api_key());
             }
+            let c = client().await?;
+            let clips = c.remaster(&args.clip_id, args.model.to_api_key()).await?;
+            handle_generation(&c, clips, args.wait, args.download.as_deref(), &fmt, cli.quiet)
+                .await?;
         }
 
         Commands::Stems(args) => {
@@ -365,6 +390,25 @@ async fn run() -> Result<(), CliError> {
             match fmt {
                 OutputFormat::Json => output::json::success(&clip),
                 OutputFormat::Table => output::table::clips(&[clip]),
+            }
+        }
+
+        Commands::Info(args) => {
+            let clips = client().await?.get_clips(&[args.id.clone()]).await?;
+            if clips.is_empty() {
+                return Err(CliError::NotFound(format!("clip: {}", args.id)));
+            }
+            match fmt {
+                OutputFormat::Json => output::json::success(&clips[0]),
+                OutputFormat::Table => output::table::clip_detail(&clips[0]),
+            }
+        }
+
+        Commands::Persona(args) => {
+            let persona = client().await?.get_persona(&args.id).await?;
+            match fmt {
+                OutputFormat::Json => output::json::success(&persona),
+                OutputFormat::Table => output::table::persona(&persona),
             }
         }
 
@@ -522,13 +566,19 @@ async fn run() -> Result<(), CliError> {
         },
 
         Commands::AgentInfo => {
+            let auth_path = directories::ProjectDirs::from("com", "suno-cli", "suno-cli")
+                .map(|d| d.config_dir().join("auth.json").display().to_string())
+                .unwrap_or_else(|| "~/.config/suno-cli/auth.json".into());
+
             let info = serde_json::json!({
                 "name": "suno",
                 "version": env!("CARGO_PKG_VERSION"),
+                "description": "Suno AI music generation CLI — v5.5 with voice personas, covers, remasters",
                 "commands": [
                     "generate", "describe", "lyrics", "extend", "concat",
-                    "cover", "remaster", "stems", "list", "search", "status",
-                    "download", "delete", "set", "publish", "timed-lyrics",
+                    "cover", "remaster", "stems", "info", "persona",
+                    "list", "search", "status", "download", "delete",
+                    "set", "publish", "timed-lyrics",
                     "credits", "models", "auth", "config", "agent-info"
                 ],
                 "models": {
@@ -538,16 +588,29 @@ async fn run() -> Result<(), CliError> {
                     "v4.5": "chirp-auk",
                     "v4": "chirp-v4",
                 },
+                "remaster_models": {
+                    "v5.5": "chirp-flounder",
+                    "v5": "chirp-carp",
+                    "v4.5+": "chirp-bass",
+                },
                 "features": [
                     "tags", "negative_tags", "vocal_gender",
-                    "weirdness (metadata.control_sliders.weirdness_constraint)",
-                    "style_influence (metadata.control_sliders.style_weight)",
+                    "weirdness", "style_influence",
                     "instrumental", "extend", "concat", "cover", "remaster",
                     "stems", "lyrics", "timed_lyrics", "set_metadata",
                     "set_visibility", "search", "delete", "captcha_check",
-                    "id3_lyrics_embedding"
+                    "id3_lyrics_embedding", "voice_persona", "clip_info"
                 ],
+                "exit_codes": {
+                    "0": "success",
+                    "1": "transient error (network, API) — retry",
+                    "2": "configuration error — check config",
+                    "3": "auth error — run `suno auth --login`",
+                    "4": "rate limited — wait and retry",
+                    "5": "not found — verify resource ID"
+                },
                 "env_prefix": "SUNO_",
+                "auth_path": auth_path,
                 "auth_required": true,
                 "default_model": "chirp-fenix (v5.5)",
             });
@@ -565,7 +628,7 @@ async fn main() {
             || !std::io::IsTerminal::is_terminal(&std::io::stdout());
 
         if json_mode {
-            output::json::error(e.error_code(), &e.to_string());
+            output::json::error(e.error_code(), &e.to_string(), e.suggestion());
         } else {
             eprintln!("Error: {e}");
         }

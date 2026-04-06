@@ -6,6 +6,7 @@ pub mod feed;
 pub mod generate;
 pub mod lyrics;
 pub mod metadata;
+pub mod persona;
 pub mod remaster;
 pub mod stems;
 pub mod types;

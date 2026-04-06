@@ -22,7 +22,7 @@
 
 ---
 
-A 3.7MB Rust binary that talks directly to Suno's API. Generate songs with custom lyrics, style tags, your own voice, vocal control, weirdness/style sliders, and every v5.5 feature. Zero-friction auth — one command extracts credentials from your browser automatically.
+A single Rust binary that talks directly to Suno's API. Generate songs with custom lyrics, style tags, your own voice persona, vocal control, weirdness/style sliders, covers, remasters, and every v5.5 feature. Zero-friction auth — one command extracts credentials from your browser automatically.
 
 [Install](#install) | [Quick Start](#quick-start) | [Commands](#commands) | [Features](#features) | [Contributing](#contributing)
 
@@ -62,7 +62,7 @@ suno auth --login
 # 2. Check your credits
 suno credits
 
-# 3. Generate a song
+# 3. Generate a song with full control
 suno generate \
   --title "Weekend Code" \
   --tags "indie rock, guitar, upbeat" \
@@ -77,7 +77,7 @@ suno generate \
 suno generate \
   --title "My Song" \
   --tags "pop, warm" \
-  --voice e483d2f0-50ca-4a09-8a74-b9e074646377 \
+  --persona e483d2f0-50ca-4a09-8a74-b9e074646377 \
   --lyrics "[Verse]\nHello from the CLI"
 
 # 5. Let Suno write the lyrics for you
@@ -86,25 +86,44 @@ suno describe --prompt "a chill lo-fi track about rainy mornings" --wait
 
 ## Commands
 
+### Create
+
 ```
-suno generate        Custom mode — lyrics + tags + title + sliders + voice
+suno generate        Custom mode — lyrics + tags + title + sliders + voice persona
 suno describe        Description mode — Suno writes lyrics from your prompt
 suno lyrics          Generate lyrics only (free, no credits)
 suno extend          Continue a clip from a timestamp
 suno concat          Stitch clips into a full song
-suno cover           Create a cover with different style
-suno remaster        Remaster with a different model
+suno cover           Create a cover with different style/model
+suno remaster        Remaster with a different model version
 suno stems           Extract vocals and instruments
+```
+
+### Browse & Inspect
+
+```
 suno list            List your songs
 suno search <query>  Search songs by title or tags
+suno info <id>       Detailed view of a single clip
+suno persona <id>    View a voice persona
 suno status <ids>    Check generation progress
+suno credits         Show balance and plan info
+suno models          List available models with limits
+```
+
+### Manage
+
+```
 suno download <ids>  Download audio/video with embedded lyrics
 suno delete <ids>    Delete/trash clips
 suno set <id>        Update title, lyrics, caption, or remove cover
 suno publish <ids>   Toggle public/private visibility
 suno timed-lyrics    Get word-level timestamped lyrics (--lrc for LRC format)
-suno credits         Show balance and plan info
-suno models          List available models with limits
+```
+
+### Config & Auth
+
+```
 suno auth            Set up authentication
 suno config          show | set | check
 suno agent-info      Machine-readable capabilities JSON
@@ -136,7 +155,7 @@ Three auth methods (in order of convenience):
 | `--prompt` (describe) | Free text description | up to 500 chars |
 | `--model` | Model version | v5.5, v5, v4.5+, v4.5, v4, v3.5, v3, v2 |
 | `--vocal` | Vocal gender | male, female |
-| `--voice` | Voice persona ID | UUID from `suno list` persona clips |
+| `--persona` | Voice persona ID | UUID from Suno voice creation |
 | `--weirdness` | How experimental | 0-100 |
 | `--style-influence` | How strictly to follow tags | 0-100 |
 | `--variation` | Output variation | high, normal, subtle |
@@ -149,11 +168,38 @@ Three auth methods (in order of convenience):
 Generate songs using your own voice. Create a voice in Suno's web UI, then use the persona ID:
 
 ```bash
-# Find your persona ID from clips that used your voice
-suno list --json | jq '.data[] | select(.metadata.persona_id) | .metadata.persona_id'
+# View persona details
+suno persona <persona_id>
 
 # Generate with your voice
-suno generate --voice <persona_id> --title "My Song" --tags "pop" --lyrics "[Verse]\nHello world"
+suno generate --persona <persona_id> --title "My Song" --tags "pop" --lyrics "[Verse]\nHello world"
+
+# Works with describe mode too
+suno describe --persona <persona_id> --prompt "a warm ballad about starlight"
+```
+
+### Covers & Remasters
+
+Create covers with different styles or remaster clips with newer models:
+
+```bash
+# Cover with different style tags
+suno cover <clip_id> --tags "jazz, smooth piano" --model v5.5 --wait
+
+# Remaster an old clip with the latest model
+suno remaster <clip_id> --model v5.5 --wait --download ./remastered/
+```
+
+Both route through Suno's unified generation endpoint (`/api/generate/v2/`).
+
+### Clip Info
+
+```bash
+# Full details for any clip
+suno info <clip_id>
+
+# JSON for scripting
+suno info <clip_id> --json | jq '.data.audio_url'
 ```
 
 ### Edit & Manage
@@ -183,34 +229,48 @@ Files use slug format: `title-slug-clipid8.mp3` — no overwrites when Suno gene
 
 ### Models
 
-| Version | Codename | Default | Max Lyrics |
+| Version | Codename | Default | Notes |
 |---|---|---|---|
-| **v5.5** | chirp-fenix | Yes | 5000 chars |
-| v5 | chirp-crow | | 5000 chars |
-| v4.5+ | chirp-bluejay | | 5000 chars |
-| v4.5 | chirp-auk | | 5000 chars |
-| v4 | chirp-v4 | | 3000 chars |
+| **v5.5** | chirp-fenix | Yes | Latest, best quality |
+| v5 | chirp-crow | | Previous generation |
+| v4.5+ | chirp-bluejay | | Extended capabilities |
+| v4.5 | chirp-auk | | Stable |
+| v4 | chirp-v4 | | Legacy |
+
+Remaster models: v5.5 = chirp-flounder, v5 = chirp-carp, v4.5+ = chirp-bass.
 
 ### Agent-Friendly
 
 Every command supports `--json` for structured output. When stdout is piped, JSON is auto-detected. Progress and errors go to stderr. Exit codes are semantic:
 
-| Code | Meaning |
-|---|---|
-| 0 | Success |
-| 1 | Runtime error |
-| 2 | Config error |
-| 3 | Auth error |
-| 4 | Rate limited |
+| Code | Meaning | Agent action |
+|---|---|---|
+| 0 | Success | Continue |
+| 1 | Runtime error (network, API) | Retry with backoff |
+| 2 | Config error | Fix config, don't retry |
+| 3 | Auth error | Run `suno auth --login` |
+| 4 | Rate limited | Wait 30-60s, retry |
+| 5 | Not found | Verify resource ID |
+
+Error responses include actionable suggestions:
+
+```json
+{
+  "version": "1",
+  "status": "error",
+  "error": {
+    "code": "auth_expired",
+    "message": "JWT expired — run `suno auth` to refresh",
+    "suggestion": "Run `suno auth --login` to refresh your session"
+  }
+}
+```
 
 ```bash
 # Pipe-friendly: auto-JSON when piped
 suno list | jq '.data[0].title'
 
-# Explicit JSON
-suno credits --json
-
-# Agent capabilities
+# Agent capabilities discovery
 suno agent-info
 ```
 
@@ -219,11 +279,12 @@ suno agent-info
 | Endpoint | Version | Status |
 |---|---|---|
 | Feed | **v3** (`POST /api/feed/v3`) | Latest |
-| Generate | **v2** (`POST /api/generate/v2/`) | Latest (only version that exists) |
+| Generate | **v2** (`POST /api/generate/v2/`) | Latest (only version) |
 | Concat | **v2** (`POST /api/generate/concat/v2/`) | Latest |
 | Aligned lyrics | **v2** (`GET /api/gen/{id}/aligned_lyrics/v2/`) | Latest |
+| Persona | `GET /api/persona/get-persona-paginated/{id}/` | Confirmed |
 
-All generation tasks (normal, voice, cover, extend) go through `/api/generate/v2/` with different `task` values.
+All generation tasks (normal, voice persona, cover, extend) go through `/api/generate/v2/` with different `task` values.
 
 ## Contributing
 
@@ -233,9 +294,9 @@ All generation tasks (normal, voice, cover, extend) go through `/api/generate/v2
 4. Open a PR
 
 We especially welcome:
-- Audio upload implementation (S3 presigned flow is documented in `API_INTELLIGENCE.md`)
-- Cover/remaster endpoint confirmation
-- Integration tests
+- Audio upload implementation (S3 presigned flow documented in `API_INTELLIGENCE.md`)
+- Voice persona creation workflow (endpoints captured, request bodies needed)
+- Integration tests with `assert_cmd`
 
 ## License
 
@@ -245,7 +306,7 @@ MIT — see [LICENSE](LICENSE).
 
 <div align="center">
 
-Built by [Boris Djordjevic](https://github.com/longevityboris) at [Paperfoot AI](https://paperfoot.com)
+Built by [Boris Djordjevic](https://github.com/longevityboris) at [199 Biotechnologies](https://github.com/199-biotechnologies)
 
 <br />
 

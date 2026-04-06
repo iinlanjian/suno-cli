@@ -45,6 +45,12 @@ pub enum Commands {
     /// Extract stems (vocals, instruments) from a clip
     Stems(StemsArgs),
 
+    /// Show detailed info for a single clip
+    Info(InfoArgs),
+
+    /// View a voice persona
+    Persona(PersonaArgs),
+
     /// List your songs
     List(ListArgs),
 
@@ -142,6 +148,10 @@ pub struct GenerateArgs {
     /// Captcha token (if required)
     #[arg(long)]
     pub token: Option<String>,
+
+    /// Voice persona ID (generates with your custom voice)
+    #[arg(long)]
+    pub persona: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -181,6 +191,10 @@ pub struct DescribeArgs {
     /// Download output to directory
     #[arg(long)]
     pub download: Option<String>,
+
+    /// Voice persona ID (generates with your custom voice)
+    #[arg(long)]
+    pub persona: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -231,9 +245,17 @@ pub struct CoverArgs {
     #[arg(long)]
     pub tags: Option<String>,
 
+    /// Model version for the cover
+    #[arg(short, long, default_value = "v5.5")]
+    pub model: ModelVersion,
+
     /// Wait for completion
     #[arg(short, long)]
     pub wait: bool,
+
+    /// Download output to directory
+    #[arg(long)]
+    pub download: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -248,6 +270,22 @@ pub struct RemasterArgs {
     /// Wait for completion
     #[arg(short, long)]
     pub wait: bool,
+
+    /// Download output to directory
+    #[arg(long)]
+    pub download: Option<String>,
+}
+
+#[derive(clap::Args)]
+pub struct InfoArgs {
+    /// Clip ID to inspect
+    pub id: String,
+}
+
+#[derive(clap::Args)]
+pub struct PersonaArgs {
+    /// Persona ID to view
+    pub id: String,
 }
 
 #[derive(clap::Args)]

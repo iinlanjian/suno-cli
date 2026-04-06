@@ -67,4 +67,19 @@ impl CliError {
             Self::Json(_) => "json_error",
         }
     }
+
+    pub fn suggestion(&self) -> &'static str {
+        match self {
+            Self::AuthMissing => "Run `suno auth --login` to authenticate",
+            Self::AuthExpired => "Run `suno auth --login` to refresh your session",
+            Self::RateLimited => "Wait 30-60 seconds and retry",
+            Self::Config(_) => "Check `suno config check` for configuration issues",
+            Self::NotFound(_) => "Verify the ID exists with `suno list` or `suno search`",
+            Self::Download(_) => "Check that the clip has finished generating with `suno status <id>`",
+            Self::GenerationFailed(_) => "Check `suno credits` for remaining balance",
+            Self::Api { .. } | Self::Http(_) => "Check your network connection and retry",
+            Self::Io(_) => "Check file permissions and disk space",
+            Self::Json(_) => "This may indicate an API change — update suno-cli",
+        }
+    }
 }
