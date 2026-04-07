@@ -228,15 +228,14 @@ async fn run() -> Result<(), CliError> {
             let c = client().await?;
 
             // Check captcha before generating
-            if let Ok(captcha_needed) = c.check_captcha().await {
-                if captcha_needed && args.token.is_none() {
-                    eprintln!(
-                        "Warning: captcha required. Use --token <hcaptcha_token> or solve captcha in browser."
-                    );
-                    eprintln!(
-                        "Tip: Premier accounts with 200+ credits consumed usually skip captcha."
-                    );
-                }
+            if let Ok(captcha_needed) = c.check_captcha().await
+                && captcha_needed
+                && args.token.is_none()
+            {
+                eprintln!(
+                    "Warning: captcha required. Use --token <hcaptcha_token> or solve captcha in browser."
+                );
+                eprintln!("Tip: Premier accounts with 200+ credits consumed usually skip captcha.");
             }
 
             // If persona specified, use task="vox"
@@ -408,7 +407,10 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Info(args) => {
-            let clips = client().await?.get_clips(&[args.id.clone()]).await?;
+            let clips = client()
+                .await?
+                .get_clips(std::slice::from_ref(&args.id))
+                .await?;
             if clips.is_empty() {
                 return Err(CliError::NotFound(format!("clip: {}", args.id)));
             }

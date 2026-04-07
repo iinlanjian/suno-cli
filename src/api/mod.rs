@@ -70,10 +70,10 @@ impl SunoClient {
 
     fn headers(&self) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
-        if let Ok(jwt) = self.auth.jwt() {
-            if let Ok(val) = format!("Bearer {jwt}").parse() {
-                headers.insert("authorization", val);
-            }
+        if let Ok(jwt) = self.auth.jwt()
+            && let Ok(val) = format!("Bearer {jwt}").parse()
+        {
+            headers.insert("authorization", val);
         }
         if let Ok(val) = self.auth.device_id().parse() {
             headers.insert("device-id", val);

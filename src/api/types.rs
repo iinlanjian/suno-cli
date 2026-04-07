@@ -103,8 +103,10 @@ pub struct ClipMetadata {
 pub struct FeedResponse {
     #[serde(default)]
     pub clips: Vec<Clip>,
+    #[allow(dead_code)]
     pub next_cursor: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub has_more: bool,
 }
 
@@ -196,6 +198,7 @@ pub struct ControlSliders {
 pub struct GenerateResponse {
     #[serde(default)]
     pub clips: Vec<Clip>,
+    #[allow(dead_code)]
     pub status: Option<String>,
 }
 
@@ -232,6 +235,7 @@ pub struct AlignedWord {
 
 // --- Captcha Check ---
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CaptchaCheckResponse {
     #[serde(default)]
@@ -272,6 +276,7 @@ pub struct ConcatRequest {
 
 // --- Persona ---
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PersonaResponse {
     #[serde(default)]

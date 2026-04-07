@@ -107,7 +107,8 @@ pub fn extract_clerk_cookie() -> Result<String, CliError> {
     let domains = Some(vec!["auth.suno.com".to_string(), ".suno.com".to_string()]);
 
     // Each closure calls a different browser extractor
-    let browsers: &[(&str, &dyn Fn() -> eyre::Result<Vec<rookie::enums::Cookie>>)] = &[
+    type BrowserFn = dyn Fn() -> eyre::Result<Vec<rookie::enums::Cookie>>;
+    let browsers: &[(&str, &BrowserFn)] = &[
         ("Chrome", &|| {
             rookie::chrome(Some(vec!["auth.suno.com".into(), ".suno.com".into()]))
         }),

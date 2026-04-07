@@ -485,6 +485,7 @@ pub enum VariationCategory {
 }
 
 impl VariationCategory {
+    #[allow(dead_code)]
     pub fn to_api_value(&self) -> &'static str {
         match self {
             Self::High => "high",
