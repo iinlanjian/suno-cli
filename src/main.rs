@@ -226,8 +226,7 @@ async fn run() -> Result<(), CliError> {
                 _ => None,
             };
             let tags = build_tags(args.tags.as_deref(), args.vocal.as_ref());
-            let control_sliders =
-                build_control_sliders(args.weirdness, args.style_influence);
+            let control_sliders = build_control_sliders(args.weirdness, args.style_influence);
 
             let c = client().await?;
 
@@ -269,14 +268,12 @@ async fn run() -> Result<(), CliError> {
 
         Commands::Describe(args) => {
             let tags = build_tags(args.tags.as_deref(), args.vocal.as_ref());
-            let control_sliders =
-                build_control_sliders(args.weirdness, args.style_influence);
+            let control_sliders = build_control_sliders(args.weirdness, args.style_influence);
 
             // The v2-web schema dropped `gpt_description_prompt` — inspiration
             // mode is now signalled by `create_mode: "inspiration"` and the
             // text is sent in the same `prompt` field as custom mode.
-            let mut req =
-                GenerateRequest::new(args.model.to_api_key(), "inspiration");
+            let mut req = GenerateRequest::new(args.model.to_api_key(), "inspiration");
             req.prompt = args.prompt;
             req.tags = tags;
             req.make_instrumental = args.instrumental;

@@ -89,8 +89,12 @@ impl CliError {
             }
             Self::Api { .. } | Self::Http(_) => "Check your network connection and retry",
             Self::Io(_) => "Check file permissions and disk space",
-            Self::Json(_) => "This may indicate an API change — run `suno update` for the latest fix",
-            Self::Update(_) => "Check your network connection or download the binary directly from GitHub Releases",
+            Self::Json(_) => {
+                "This may indicate an API change — run `suno update` for the latest fix"
+            }
+            Self::Update(_) => {
+                "Check your network connection or download the binary directly from GitHub Releases"
+            }
         }
     }
 }

@@ -63,16 +63,6 @@ impl AuthState {
         Ok(())
     }
 
-    pub fn jwt(&self) -> Result<&str, CliError> {
-        self.jwt.as_deref().ok_or(CliError::AuthMissing)
-    }
-
-    pub fn device_id(&self) -> &str {
-        self.device_id
-            .as_deref()
-            .unwrap_or("00000000-0000-0000-0000-000000000000")
-    }
-
     pub fn is_jwt_expired(&self) -> bool {
         let Some(jwt) = &self.jwt else { return true };
         let parts: Vec<&str> = jwt.split('.').collect();
