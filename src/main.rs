@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod captcha;
 mod cli;
 mod config;
 mod download;
@@ -258,9 +259,23 @@ async fn run() -> Result<(), CliError> {
             req.tags = tags;
             req.negative_tags = args.exclude.unwrap_or_default();
             req.make_instrumental = args.instrumental;
-            req.token = args.token;
             req.persona_id = args.persona.clone();
             req.metadata.control_sliders = control_sliders;
+
+            // Solve hCaptcha. Suno gates v2-web with an invisible challenge
+            // — only a real piloted Chrome can pass it. The user can override
+            // by passing --token explicitly (e.g. from a 2Captcha solution).
+            req.token = if let Some(t) = args.token {
+                Some(t)
+            } else if !args.no_captcha {
+                if !cli.quiet {
+                    eprintln!("Solving hCaptcha via piloted Chrome...");
+                }
+                let auth = AuthState::load()?;
+                Some(captcha::solve(&auth).await?)
+            } else {
+                None
+            };
 
             if !cli.quiet {
                 let persona_note = if args.persona.is_some() {
@@ -298,6 +313,15 @@ async fn run() -> Result<(), CliError> {
             req.make_instrumental = args.instrumental;
             req.persona_id = args.persona.clone();
             req.metadata.control_sliders = control_sliders;
+
+            // Same captcha auto-solve as generate.
+            if !args.no_captcha {
+                if !cli.quiet {
+                    eprintln!("Solving hCaptcha via piloted Chrome...");
+                }
+                let auth = AuthState::load()?;
+                req.token = Some(captcha::solve(&auth).await?);
+            }
 
             if !cli.quiet {
                 eprintln!("Submitting description ({})...", args.model.display_name());

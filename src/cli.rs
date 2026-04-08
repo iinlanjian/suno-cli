@@ -158,9 +158,14 @@ pub struct GenerateArgs {
     #[arg(long)]
     pub download: Option<String>,
 
-    /// Captcha token (if required)
+    /// hCaptcha token (overrides the auto-solver)
     #[arg(long)]
     pub token: Option<String>,
+
+    /// Skip the built-in hCaptcha auto-solver. Useful for headless servers
+    /// where you supply --token directly (e.g. from a 2Captcha solution).
+    #[arg(long)]
+    pub no_captcha: bool,
 
     /// Voice persona ID (generates with your custom voice)
     #[arg(long)]
@@ -204,6 +209,10 @@ pub struct DescribeArgs {
     /// Download output to directory
     #[arg(long)]
     pub download: Option<String>,
+
+    /// Skip the built-in hCaptcha auto-solver
+    #[arg(long)]
+    pub no_captcha: bool,
 
     /// Voice persona ID (generates with your custom voice)
     #[arg(long)]
