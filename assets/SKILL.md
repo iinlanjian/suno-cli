@@ -82,7 +82,11 @@ suno search "rainy"
 
 # Cover or remaster an existing clip
 suno cover <clip_id> --tags "jazz, smooth piano" --model v5.5 --wait
+suno cover <clip_id> --tags "acoustic" --lyrics "[Verse]\nCustom lyrics" --wait
 suno remaster <clip_id> --model v5.5 --wait --download ./remastered/
+
+# Upload a local audio file
+suno upload /path/to/song.mp3
 
 # Extract stems (vocals + instruments)
 suno stems <clip_id> --wait

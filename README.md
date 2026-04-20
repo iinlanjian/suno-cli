@@ -105,7 +105,8 @@ suno describe        Description mode — Suno writes lyrics from your prompt
 suno lyrics          Generate lyrics only (free, no credits)
 suno extend          Continue a clip from a timestamp
 suno concat          Stitch clips into a full song
-suno cover           Create a cover with different style/model
+suno cover           Create a cover with different style/model + custom lyrics
+suno upload          Upload a local audio file to Suno
 suno remaster        Remaster with a different model version
 suno stems           Extract vocals and instruments
 ```
@@ -120,6 +121,12 @@ suno persona <id>    View a voice persona
 suno status <ids>    Check generation progress
 suno credits         Show balance and plan info
 suno models          List available models with limits
+```
+
+### Upload
+
+```
+suno upload <file>   Upload a local audio file (mp3, wav, flac, ogg, m4a, aac)
 ```
 
 ### Manage
@@ -198,6 +205,12 @@ Create covers with different styles or remaster clips with newer models:
 ```bash
 # Cover with different style tags
 suno cover <clip_id> --tags "jazz, smooth piano" --model v5.5 --wait
+
+# Cover with custom lyrics
+suno cover <clip_id> --tags "acoustic, folk" --lyrics "[Verse]\nA new take on this song" --wait
+
+# Cover with lyrics from a file
+suno cover <clip_id> --tags "rock" --lyrics-file cover_lyrics.txt --wait --download ./covers/
 
 # Remaster an old clip with the latest model
 suno remaster <clip_id> --model v5.5 --wait --download ./remastered/
@@ -327,7 +340,6 @@ All generation tasks (normal, voice persona, cover, extend) go through `/api/gen
 4. Open a PR
 
 We especially welcome:
-- Audio upload implementation (S3 presigned flow documented in `API_INTELLIGENCE.md`)
 - Voice persona creation workflow (endpoints captured, request bodies needed)
 - Integration tests with `assert_cmd`
 

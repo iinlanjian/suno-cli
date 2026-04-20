@@ -776,7 +776,7 @@ async fn run() -> Result<(), CliError> {
                 "description": "Suno AI music generation CLI — v5.5 with voice personas, covers, remasters",
                 "commands": [
                     "generate", "describe", "lyrics", "extend", "concat",
-                    "cover", "remaster", "stems", "info", "persona",
+                    "cover", "upload", "remaster", "stems", "info", "persona",
                     "list", "search", "status", "download", "delete",
                     "set", "publish", "timed-lyrics",
                     "credits", "models", "auth", "config", "agent-info",
