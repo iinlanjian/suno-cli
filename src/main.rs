@@ -403,6 +403,57 @@ async fn run() -> Result<(), CliError> {
             }
         }
 
+        Commands::Upload(args) => {
+            let file_path = &args.file;
+            if !std::path::Path::new(file_path).exists() {
+                return Err(CliError::Config(format!("file not found: {file_path}")));
+            }
+
+            let extension = std::path::Path::new(file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("mp3")
+                .to_string();
+
+            // Read file
+            let data = std::fs::read(file_path).map_err(|e| {
+                CliError::Config(format!("failed to read '{file_path}': {e}"))
+            })?;
+            let size_mb = data.len() as f64 / 1024.0 / 1024.0;
+
+            if !cli.quiet {
+                eprintln!("Uploading {file_path} ({size_mb:.1} MB, {extension})...");
+            }
+
+            let c = client().await?;
+
+            // Step 1: request S3 presigned POST credentials
+            let init = c.upload_audio_init(&extension).await?;
+
+            if !cli.quiet {
+                eprintln!("Got upload slot (id: {}), sending file to S3...", init.id);
+            }
+
+            // Step 2: POST file to S3 via presigned multipart form
+            c.upload_audio_to_s3(&init, data).await?;
+
+            if !cli.quiet {
+                eprintln!("Upload complete!");
+            }
+
+            match fmt {
+                OutputFormat::Json => output::json::success(&serde_json::json!({
+                    "id": init.id,
+                    "upload_id": init.id,
+                    "status": "uploaded",
+                })),
+                OutputFormat::Table => {
+                    eprintln!("Upload ID: {}", init.id);
+                    eprintln!("Status: uploaded");
+                }
+            }
+        }
+
         Commands::Info(args) => {
             let clips = client()
                 .await?

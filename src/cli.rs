@@ -45,6 +45,9 @@ pub enum Commands {
     /// Extract stems (vocals, instruments) from a clip
     Stems(StemsArgs),
 
+    /// Upload a local audio file to Suno
+    Upload(UploadArgs),
+
     /// Show detailed info for a single clip
     Info(InfoArgs),
 
@@ -318,6 +321,12 @@ pub struct StemsArgs {
     /// Wait for completion
     #[arg(short, long)]
     pub wait: bool,
+}
+
+#[derive(clap::Args)]
+pub struct UploadArgs {
+    /// Path to the audio file to upload (mp3, wav, flac, ogg, m4a, aac)
+    pub file: String,
 }
 
 #[derive(clap::Args)]
