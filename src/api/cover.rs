@@ -13,6 +13,7 @@ impl SunoClient {
         lyrics: &str,
     ) -> Result<Vec<Clip>, CliError> {
         let mut req = GenerateRequest::new(model_key, "cover");
+        req.title = Some(format!("cover_{}", &clip_id[..8]));
         req.tags = tags.map(String::from);
         req.prompt = lyrics.to_string();
         req.cover_clip_id = Some(clip_id.to_string());
