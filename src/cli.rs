@@ -270,6 +270,14 @@ pub struct CoverArgs {
     #[arg(long)]
     pub tags: Option<String>,
 
+    /// Lyrics text for the cover
+    #[arg(short, long, conflicts_with = "lyrics_file")]
+    pub lyrics: Option<String>,
+
+    /// Read lyrics from file
+    #[arg(long)]
+    pub lyrics_file: Option<String>,
+
     /// Model version for the cover
     #[arg(short, long, default_value = "v5.5")]
     pub model: ModelVersion,

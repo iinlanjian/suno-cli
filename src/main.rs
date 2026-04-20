@@ -360,12 +360,17 @@ async fn run() -> Result<(), CliError> {
         }
 
         Commands::Cover(args) => {
+            let lyrics = match (&args.lyrics, &args.lyrics_file) {
+                (Some(l), _) => l.clone(),
+                (_, Some(path)) => std::fs::read_to_string(path)?,
+                _ => String::new(),
+            };
             if !cli.quiet {
                 eprintln!("Creating cover ({})...", args.model.display_name());
             }
             let c = client().await?;
             let clips = c
-                .cover(&args.clip_id, args.model.to_api_key(), args.tags.as_deref())
+                .cover(&args.clip_id, args.model.to_api_key(), args.tags.as_deref(), &lyrics)
                 .await?;
             handle_generation(
                 &c,
