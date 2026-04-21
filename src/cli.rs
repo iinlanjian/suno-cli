@@ -293,6 +293,14 @@ pub struct CoverArgs {
     /// Download output to directory
     #[arg(long)]
     pub download: Option<String>,
+
+    /// hCaptcha token (overrides the auto-solver)
+    #[arg(long)]
+    pub token: Option<String>,
+
+    /// Skip the built-in hCaptcha auto-solver
+    #[arg(long)]
+    pub no_captcha: bool,
 }
 
 #[derive(clap::Args)]

@@ -369,15 +369,32 @@ async fn run() -> Result<(), CliError> {
                 eprintln!("Creating cover ({})...", args.model.display_name());
             }
             let c = client().await?;
-            let clips = c
-                .cover(
-                    &args.clip_id,
-                    args.model.to_api_key(),
-                    args.tags.as_deref(),
-                    &lyrics,
-                    args.title.as_deref(),
-                )
-                .await?;
+
+            // Build the cover request
+            let mut req = GenerateRequest::new(args.model.to_api_key(), "cover");
+            req.title = Some(
+                args.title
+                    .clone()
+                    .unwrap_or_else(|| format!("cover_{}", &args.clip_id[..8])),
+            );
+            req.tags = args.tags.clone();
+            req.prompt = lyrics;
+            req.cover_clip_id = Some(args.clip_id.clone());
+
+            // Solve hCaptcha — same logic as generate command
+            req.token = if let Some(t) = args.token {
+                Some(t)
+            } else if !args.no_captcha {
+                if !cli.quiet {
+                    eprintln!("Solving hCaptcha via piloted Chrome...");
+                }
+                let auth = AuthState::load()?;
+                Some(captcha::solve(&auth).await?)
+            } else {
+                None
+            };
+
+            let clips = c.generate(&req).await?;
             handle_generation(
                 &c,
                 clips,
