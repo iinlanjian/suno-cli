@@ -15,6 +15,7 @@ impl SunoClient {
         title: Option<&str>,
     ) -> Result<Vec<Clip>, CliError> {
         let mut req = GenerateRequest::new(model_key, "cover");
+        req.generation_type = "SIMPLE_REMIX".to_string();
         req.title = Some(
             title
                 .map(String::from)

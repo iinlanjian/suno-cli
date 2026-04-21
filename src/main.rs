@@ -51,6 +51,7 @@ fn build_control_sliders(
         // Normalize 0-100 → 0.0-1.0
         weirdness_constraint: weirdness.map(|w| (w / 100.0).clamp(0.0, 1.0)),
         style_weight: style_influence.map(|s| (s / 100.0).clamp(0.0, 1.0)),
+        audio_weight: None,  // Only set for cover/remix modes
     })
 }
 
@@ -371,7 +372,10 @@ async fn run() -> Result<(), CliError> {
             let c = client().await?;
 
             // Build the cover request
-            let mut req = GenerateRequest::new(args.model.to_api_key(), "cover");
+            let mut req = GenerateRequest::new(args.model.to_api_key(), "custom");
+            req.task = Some("cover".to_string());
+            req.generation_type = "TEXT".to_string();
+            req.token = None;
             req.title = Some(
                 args.title
                     .clone()
@@ -381,18 +385,14 @@ async fn run() -> Result<(), CliError> {
             req.prompt = lyrics;
             req.cover_clip_id = Some(args.clip_id.clone());
 
-            // Solve hCaptcha — same logic as generate command
-            req.token = if let Some(t) = args.token {
-                Some(t)
-            } else if !args.no_captcha {
-                if !cli.quiet {
-                    eprintln!("Solving hCaptcha via piloted Chrome...");
-                }
-                let auth = AuthState::load()?;
-                Some(captcha::solve(&auth).await?)
-            } else {
-                None
-            };
+            // Set metadata fields for cover
+            req.metadata.is_remix = true;
+            req.metadata.vocal_gender = Some("m".to_string());
+            req.metadata.control_sliders = Some(ControlSliders {
+                weirdness_constraint: Some(0.25),
+                style_weight: None,
+                audio_weight: Some(0.8),
+            });
 
             let clips = c.generate(&req).await?;
             handle_generation(

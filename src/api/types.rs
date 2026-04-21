@@ -4,17 +4,17 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BillingInfo {
-    pub credits: u64,
-    pub total_credits_left: u64,
-    pub monthly_usage: u64,
-    pub monthly_limit: u64,
-    pub is_active: bool,
-    pub plan: Plan,
-    pub models: Vec<Model>,
-    pub period: String,
-    pub renews_on: Option<String>,
-    #[serde(default)]
-    pub remaster_model_types: Vec<RemasterModelInfo>,
+   pub credits: u64,
+   pub total_credits_left: u64,
+   pub monthly_usage: u64,
+   pub monthly_limit: u64,
+   pub is_active: bool,
+   pub plan: Plan,
+   pub models: Vec<Model>,
+   pub period: String,
+   pub renews_on: Option<String>,
+   #[serde(default)]
+   pub remaster_model_types: Vec<RemasterModelInfo>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -144,7 +144,7 @@ pub struct FilterPresence {
     pub presence: String,
 }
 
-// --- Generation ---
+// --- Generation --
 //
 // Schema captured from a real Suno web-app POST to `/api/generate/v2-web/`
 // on 2026-04-07 (see API_INTELLIGENCE.md). The old `/api/generate/v2/` path
@@ -159,6 +159,9 @@ pub struct GenerateRequest {
     /// real validation happens via `metadata.create_session_token`.
     pub token: Option<String>,
     pub generation_type: String,
+    /// Task type: "cover", "remix", etc. Required for cover mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
     /// Must be a non-empty string — Suno returns 422 if null (since 2026-04).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -174,7 +177,9 @@ pub struct GenerateRequest {
     /// Always present, empty array unless overriding model fields.
     pub override_fields: Vec<serde_json::Value>,
     pub cover_clip_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_start_s: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_end_s: Option<f64>,
     pub persona_id: Option<String>,
     pub artist_clip_id: Option<String>,
@@ -195,6 +200,7 @@ impl GenerateRequest {
         Self {
             token: None,
             generation_type: "TEXT".to_string(),
+            task: None,
             title: None,
             tags: None,
             negative_tags: String::new(),
@@ -228,6 +234,9 @@ pub struct GenerateMetadata {
     pub is_max_mode: bool,
     pub is_mumble: bool,
     pub create_mode: String,
+    pub is_remix: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vocal_gender: Option<String>,
     pub user_tier: String,
     /// Random UUID generated per request — looks decorative but must be present.
     pub create_session_token: String,
@@ -247,6 +256,8 @@ impl GenerateMetadata {
             is_max_mode: false,
             is_mumble: false,
             create_mode: create_mode.to_string(),
+            is_remix: false,
+            vocal_gender: None,
             user_tier: String::new(),
             create_session_token: uuid::Uuid::new_v4().to_string(),
             disable_volume_normalization: false,
@@ -260,6 +271,9 @@ pub struct ControlSliders {
     /// Weirdness: 0.0-1.0 (maps from 0-100 in UI)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weirdness_constraint: Option<f64>,
+    /// Audio weight: 0.0-1.0, controls how much the source audio influences the output
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_weight: Option<f64>,
     /// Style weight: 0.0-1.0 (maps from 0-90 in UI)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style_weight: Option<f64>,

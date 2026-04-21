@@ -109,6 +109,12 @@ async fn ensure_chrome_running() -> Result<(), CliError> {
 /// Locate a Chrome binary on the host. Looks in the usual macOS / Linux /
 /// Windows install paths and falls back to `$PATH`.
 fn locate_chrome() -> Result<String, CliError> {
+    // Check SUNO_CHROME_PATH env var first (highest priority)
+    if let Ok(path) = std::env::var("SUNO_CHROME_PATH") {
+        if std::path::Path::new(&path).exists() {
+            return Ok(path);
+        }
+    }
     let candidates: &[&str] = if cfg!(target_os = "macos") {
         &[
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -281,7 +287,7 @@ async fn cdp_call(
 /// Connect to the page websocket, inject cookies, navigate to suno.com/create
 /// if needed, then render an invisible hCaptcha widget and call
 /// `hcaptcha.execute()` to obtain a token.
-async fn render_and_execute(ws_url: &str, _auth: &AuthState) -> Result<String, CliError> {
+async fn render_and_execute(ws_url: &str, auth: &AuthState) -> Result<String, CliError> {
     let (mut ws, _) = tokio_tungstenite::connect_async(ws_url)
         .await
         .map_err(|e| CliError::Config(format!("CDP ws connect: {e}")))?;
@@ -296,9 +302,16 @@ async fn render_and_execute(ws_url: &str, _auth: &AuthState) -> Result<String, C
     cdp_call(&mut ws, next(), "Page.enable", serde_json::json!({})).await?;
     cdp_call(&mut ws, next(), "Runtime.enable", serde_json::json!({})).await?;
 
-    // Inject cookies fresh from rookie every time so we always have the
-    // latest from the user's main Chrome.
-    let cookies = extract_cookies()?;
+    // Inject cookies: try rookie (user's local Chrome) first, then fall
+    // back to the stored Clerk client cookie from auth.json for headless
+    // servers that don't have a local Chrome with a Suno session.
+    let cookies = match extract_cookies() {
+        Ok(c) if !c.is_empty() => c,
+        _ => {
+            eprintln!("No local Chrome cookies, using stored Clerk session");
+            cookies_from_auth(auth)
+        }
+    };
     if !cookies.is_empty() {
         cdp_call(
             &mut ws,
@@ -460,6 +473,36 @@ fn extract_cookies() -> Result<Vec<CdpCookie>, CliError> {
         });
     }
     Ok(out)
+}
+
+/// Build cookies from the stored auth.json session (fallback for headless
+/// servers without a local Chrome browser that has a Suno session).
+fn cookies_from_auth(auth: &AuthState) -> Vec<CdpCookie> {
+    let mut out = Vec::new();
+    if let Some(ref client_cookie) = auth.clerk_client_cookie {
+        out.push(CdpCookie {
+            name: "__client".to_string(),
+            value: client_cookie.clone(),
+            domain: "auth.suno.com".to_string(),
+            path: "/".to_string(),
+            secure: true,
+            http_only: true,
+            same_site: "Lax",
+        });
+    }
+    // The JWT serves as the __session cookie content
+    if let Some(ref jwt) = auth.jwt {
+        out.push(CdpCookie {
+            name: "__session".to_string(),
+            value: jwt.clone(),
+            domain: ".suno.com".to_string(),
+            path: "/".to_string(),
+            secure: true,
+            http_only: true,
+            same_site: "Lax",
+        });
+    }
+    out
 }
 
 /// Drain the spawned Chrome's stderr in the background — keeps it from
