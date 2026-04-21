@@ -159,7 +159,10 @@ pub struct GenerateRequest {
     /// real validation happens via `metadata.create_session_token`.
     pub token: Option<String>,
     pub generation_type: String,
+    /// Must be a non-empty string — Suno returns 422 if null (since 2026-04).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<String>,
     /// Always present, defaults to "" (empty string, NOT null).
     pub negative_tags: String,

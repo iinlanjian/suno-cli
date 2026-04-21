@@ -266,6 +266,10 @@ pub struct CoverArgs {
     /// Clip ID to create a cover of
     pub clip_id: String,
 
+    /// Title for the cover (default: auto-generated from clip ID)
+    #[arg(short, long)]
+    pub title: Option<String>,
+
     /// Style tags for the cover
     #[arg(long)]
     pub tags: Option<String>,

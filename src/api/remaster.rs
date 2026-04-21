@@ -13,6 +13,7 @@ impl SunoClient {
         remaster_model_key: &str,
     ) -> Result<Vec<Clip>, CliError> {
         let mut req = GenerateRequest::new(remaster_model_key, "remaster");
+        req.title = Some(format!("remaster_{}", &clip_id[..8]));
         req.cover_clip_id = Some(clip_id.to_string());
         self.generate(&req).await
     }

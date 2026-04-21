@@ -370,7 +370,13 @@ async fn run() -> Result<(), CliError> {
             }
             let c = client().await?;
             let clips = c
-                .cover(&args.clip_id, args.model.to_api_key(), args.tags.as_deref(), &lyrics)
+                .cover(
+                    &args.clip_id,
+                    args.model.to_api_key(),
+                    args.tags.as_deref(),
+                    &lyrics,
+                    args.title.as_deref(),
+                )
                 .await?;
             handle_generation(
                 &c,
