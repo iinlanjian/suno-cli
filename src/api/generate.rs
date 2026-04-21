@@ -37,6 +37,37 @@ impl SunoClient {
                 .all(|c| matches!(c.status.as_str(), "complete" | "error"));
 
             if all_done {
+                // If ALL clips ended in "error", surface it as a generation failure
+                // so the user gets a clear non-zero exit instead of silent "success".
+                let all_errored = clips
+                    .iter()
+                    .all(|c| c.status == "error");
+                if all_errored {
+                    let details: Vec<String> = clips
+                        .iter()
+                        .map(|c| format!("{} ({})", c.title, c.id))
+                        .collect();
+                    return Err(CliError::GenerationFailed(format!(
+                        "all clips failed — likely content policy or copyright restriction: {}",
+                        details.join(", ")
+                    )));
+                }
+                // Partial failure: some succeeded, some errored — warn the user.
+                let errored: Vec<&Clip> = clips
+                    .iter()
+                    .filter(|c| c.status == "error")
+                    .collect();
+                if !errored.is_empty() {
+                    let details: Vec<String> = errored
+                        .iter()
+                        .map(|c| format!("{} ({})", c.title, c.id))
+                        .collect();
+                    eprintln!(
+                        "Warning: {} clip(s) failed (likely content policy or copyright restriction): {}",
+                        errored.len(),
+                        details.join(", ")
+                    );
+                }
                 return Ok(clips);
             }
             if start.elapsed() >= timeout {
