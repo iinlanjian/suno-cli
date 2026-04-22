@@ -207,10 +207,19 @@ Create covers with different styles or remaster clips with newer models:
 suno cover <clip_id> --tags "jazz, smooth piano" --model v5.5 --wait
 
 # Cover with custom lyrics
-suno cover <clip_id> --tags "acoustic, folk" --lyrics "[Verse]\nA new take on this song" --wait
+suno cover <clip_id> --tags "acoustic, folk" --lyrics "[Verse]\\nA new take on this song" --wait
 
 # Cover with lyrics from a file
 suno cover <clip_id> --tags "rock" --lyrics-file cover_lyrics.txt --wait --download ./covers/
+
+# Cover with full control over sliders and vocal
+suno cover <clip_id> \
+  --tags "jazz, smooth piano" \
+  --vocal female \
+  --weirdness 30 \
+  --style-weight 60 \
+  --audio-weight 85 \
+  --wait --download ./covers/
 
 # Remaster an old clip with the latest model
 suno remaster <clip_id> --model v5.5 --wait --download ./remastered/

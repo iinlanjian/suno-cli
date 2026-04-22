@@ -82,7 +82,8 @@ suno search "rainy"
 
 # Cover or remaster an existing clip
 suno cover <clip_id> --tags "jazz, smooth piano" --model v5.5 --wait
-suno cover <clip_id> --tags "acoustic" --lyrics "[Verse]\nCustom lyrics" --wait
+suno cover <clip_id> --tags "acoustic" --lyrics "[Verse]\\nCustom lyrics" --wait
+suno cover <clip_id> --vocal female --weirdness 30 --style-weight 60 --audio-weight 85 --wait
 suno remaster <clip_id> --model v5.5 --wait --download ./remastered/
 
 # Upload a local audio file
@@ -120,8 +121,10 @@ suno models
 | `--model` | Model version | v5.5 (default), v5, v4.5+, v4.5, v4 |
 | `--vocal` | Vocal gender | male, female |
 | `--persona` | Voice persona UUID | from Suno voice creation |
-| `--weirdness` | How experimental | 0–100 |
+| `--weirdness` | How experimental | 0–100 (default 25 for cover) |
 | `--style-influence` | How strictly to follow tags | 0–100 |
+| `--style-weight` | Cover: how much style tags influence output | 0–100 |
+| `--audio-weight` | Cover: how much source audio influences output | 0–100 (default 80) |
 | `--variation` | Output variation | high, normal, subtle |
 | `--instrumental` | No vocals | flag |
 | `--wait` | Block until generation completes | flag |
