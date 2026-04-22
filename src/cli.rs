@@ -294,6 +294,22 @@ pub struct CoverArgs {
     #[arg(long)]
     pub download: Option<String>,
 
+    /// Vocal gender
+    #[arg(long)]
+    pub vocal: Option<VocalGender>,
+
+    /// Weirdness level (0-100, default 25)
+    #[arg(long)]
+    pub weirdness: Option<f64>,
+
+    /// Style weight: how much the style tags influence the output (0-100)
+    #[arg(long)]
+    pub style_weight: Option<f64>,
+
+    /// Audio weight: how much the source audio influences the output (0-100, default 80)
+    #[arg(long)]
+    pub audio_weight: Option<f64>,
+
     /// hCaptcha token (overrides the auto-solver)
     #[arg(long)]
     pub token: Option<String>,

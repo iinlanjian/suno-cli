@@ -4,17 +4,17 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BillingInfo {
-   pub credits: u64,
-   pub total_credits_left: u64,
-   pub monthly_usage: u64,
-   pub monthly_limit: u64,
-   pub is_active: bool,
-   pub plan: Plan,
-   pub models: Vec<Model>,
-   pub period: String,
-   pub renews_on: Option<String>,
-   #[serde(default)]
-   pub remaster_model_types: Vec<RemasterModelInfo>,
+    pub credits: u64,
+    pub total_credits_left: u64,
+    pub monthly_usage: u64,
+    pub monthly_limit: u64,
+    pub is_active: bool,
+    pub plan: Plan,
+    pub models: Vec<Model>,
+    pub period: String,
+    pub renews_on: Option<String>,
+    #[serde(default)]
+    pub remaster_model_types: Vec<RemasterModelInfo>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

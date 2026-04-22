@@ -375,24 +375,45 @@ async fn run() -> Result<(), CliError> {
             let mut req = GenerateRequest::new(args.model.to_api_key(), "custom");
             req.task = Some("cover".to_string());
             req.generation_type = "TEXT".to_string();
-            req.token = None;
             req.title = Some(
                 args.title
                     .clone()
                     .unwrap_or_else(|| format!("cover_{}", &args.clip_id[..8])),
             );
-            req.tags = args.tags.clone();
+            req.tags = build_tags(args.tags.as_deref(), args.vocal.as_ref());
             req.prompt = lyrics;
             req.cover_clip_id = Some(args.clip_id.clone());
 
             // Set metadata fields for cover
             req.metadata.is_remix = true;
-            req.metadata.vocal_gender = Some("m".to_string());
+            req.metadata.vocal_gender = match &args.vocal {
+                Some(VocalGender::Male) => Some("m".to_string()),
+                Some(VocalGender::Female) => Some("f".to_string()),
+                None => None,
+            };
+
+            // Build control sliders: use user-provided values or sensible defaults for cover
+            let weirdness = args.weirdness.map(|w| (w / 100.0).clamp(0.0, 1.0));
+            let style_weight = args.style_weight.map(|s| (s / 100.0).clamp(0.0, 1.0));
+            let audio_weight = args.audio_weight.map(|a| (a / 100.0).clamp(0.0, 1.0));
             req.metadata.control_sliders = Some(ControlSliders {
-                weirdness_constraint: Some(0.25),
-                style_weight: None,
-                audio_weight: Some(0.8),
+                weirdness_constraint: weirdness.or(Some(0.25)),
+                style_weight: style_weight,
+                audio_weight: audio_weight.or(Some(0.8)),
             });
+
+            // Solve hCaptcha — same logic as generate command
+            req.token = if let Some(t) = args.token {
+                Some(t)
+            } else if !args.no_captcha {
+                if !cli.quiet {
+                    eprintln!("Solving hCaptcha via piloted Chrome...");
+                }
+                let auth = AuthState::load()?;
+                Some(captcha::solve(&auth).await?)
+            } else {
+                None
+            };
 
             let clips = c.generate(&req).await?;
             handle_generation(
