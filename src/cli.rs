@@ -48,6 +48,9 @@ pub enum Commands {
     /// Upload a local audio file to Suno
     Upload(UploadArgs),
 
+    /// Convert an upload_id to a clip_id (required before cover/generate on uploaded audio)
+    InitClip(InitClipArgs),
+
     /// Show detailed info for a single clip
     Info(InfoArgs),
 
@@ -363,6 +366,12 @@ pub struct StemsArgs {
 pub struct UploadArgs {
     /// Path to the audio file to upload (mp3, wav, flac, ogg, m4a, aac)
     pub file: String,
+}
+
+#[derive(clap::Args)]
+pub struct InitClipArgs {
+    /// Upload ID to convert to a clip ID
+    pub upload_id: String,
 }
 
 #[derive(clap::Args)]

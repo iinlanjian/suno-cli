@@ -45,6 +45,15 @@ pub fn content_type_for_ext(ext: &str) -> &'static str {
     }
 }
 
+/// Response from GET /api/uploads/audio/{id}/ — upload processing status.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UploadStatusResponse {
+    pub id: String,
+    pub status: String,
+    #[serde(default)]
+    pub title: String,
+}
+
 impl SunoClient {
     /// Step 1: Request an upload slot for an audio file.
     /// POST /api/uploads/audio/ with {"extension": "mp3"}
@@ -94,9 +103,11 @@ impl SunoClient {
                     .unwrap_or_else(|_| reqwest::multipart::Part::bytes(Vec::new()).file_name("audio")),
             );
 
+        // S3 uploads can be slow (~70KB/s observed); use a generous per-request timeout.
         let resp = self
             .client
             .post(&init.url)
+            .timeout(std::time::Duration::from_secs(300))
             .multipart(form)
             .send()
             .await
@@ -115,5 +126,105 @@ impl SunoClient {
         }
 
         Ok(())
+    }
+
+    /// Step 3: Notify Suno that the upload is complete.
+    /// POST /api/uploads/audio/{upload_id}/upload-finish/
+    pub async fn upload_audio_finish(
+        &self,
+        upload_id: &str,
+        filename: &str,
+    ) -> Result<(), CliError> {
+        let body = serde_json::json!({
+            "upload_type": "audio",
+            "upload_filename": filename,
+        });
+        let resp = self
+            .post(&format!("/api/uploads/audio/{upload_id}/upload-finish/"))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(CliError::Api {
+                code: "upload_finish_failed",
+                message: format!("upload-finish failed (HTTP {status}): {body}"),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Query upload processing status.
+    /// GET /api/uploads/audio/{upload_id}/
+    /// Returns Ok(Some(status)) if found, Ok(None) if 404 (deleted/copyright takedown).
+    pub async fn upload_audio_status(
+        &self,
+        upload_id: &str,
+    ) -> Result<Option<UploadStatusResponse>, CliError> {
+        let resp = self
+            .get(&format!("/api/uploads/audio/{upload_id}/"))
+            .send()
+            .await?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(CliError::Api {
+                code: "upload_status_failed",
+                message: format!("upload status check failed (HTTP {status}): {body}"),
+            });
+        }
+
+        let status_resp: UploadStatusResponse = resp.json().await.map_err(|e| {
+            CliError::Api {
+                code: "parse_error",
+                message: format!("Failed to parse upload status: {e}"),
+            }
+        })?;
+
+        Ok(Some(status_resp))
+    }
+
+    /// Convert an upload_id to a clip_id by calling the initialize-clip endpoint.
+    /// POST /api/uploads/audio/{upload_id}/initialize-clip/
+    pub async fn initialize_clip(
+        &self,
+        upload_id: &str,
+    ) -> Result<String, CliError> {
+        let resp = self
+            .post(&format!("/api/uploads/audio/{upload_id}/initialize-clip/"))
+            .json(&serde_json::json!({}))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(CliError::Api {
+                code: "initialize_clip_failed",
+                message: format!("initialize-clip failed (HTTP {status}): {body}"),
+            });
+        }
+
+        #[derive(Debug, Deserialize)]
+        struct InitClipResponse {
+            clip_id: String,
+        }
+
+        let init_resp: InitClipResponse = resp.json().await.map_err(|e| {
+            CliError::Api {
+                code: "parse_error",
+                message: format!("Failed to parse initialize-clip response: {e}"),
+            }
+        })?;
+
+        Ok(init_resp.clip_id)
     }
 }

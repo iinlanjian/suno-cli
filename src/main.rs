@@ -374,7 +374,7 @@ async fn run() -> Result<(), CliError> {
             // Build the cover request
             let mut req = GenerateRequest::new(args.model.to_api_key(), "custom");
             req.task = Some("cover".to_string());
-            req.generation_type = "TEXT".to_string();
+            req.generation_type = "AUDIO".to_string();
             req.title = Some(
                 args.title
                     .clone()
@@ -470,6 +470,13 @@ async fn run() -> Result<(), CliError> {
             })?;
             let size_mb = data.len() as f64 / 1024.0 / 1024.0;
 
+            // Extract filename for upload-finish
+            let filename = std::path::Path::new(file_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("audio.mp3")
+                .to_string();
+
             if !cli.quiet {
                 eprintln!("Uploading {file_path} ({size_mb:.1} MB, {extension})...");
             }
@@ -487,18 +494,117 @@ async fn run() -> Result<(), CliError> {
             c.upload_audio_to_s3(&init, data).await?;
 
             if !cli.quiet {
-                eprintln!("Upload complete!");
+                eprintln!("File uploaded to S3. Notifying Suno...");
+            }
+
+            // Step 3: call upload-finish to tell Suno the file is ready
+            c.upload_audio_finish(&init.id, &filename).await?;
+
+            if !cli.quiet {
+                eprintln!("Waiting for Suno to process the upload...");
+            }
+
+            // Step 4: poll upload status (detect copyright takedown)
+            let mut final_status = String::from("uploaded");
+            let mut poll_count = 0u32;
+            let max_polls = 30u32; // 30 x 5s = 2.5 min max wait
+
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                poll_count += 1;
+
+                match c.upload_audio_status(&init.id).await {
+                    Ok(Some(status)) => {
+                        if !cli.quiet {
+                            eprintln!(
+                                "[{}s] Status: {}",
+                                poll_count * 5,
+                                status.status
+                            );
+                        }
+                        match status.status.as_str() {
+                            "complete" => {
+                                final_status = "complete".to_string();
+                                break;
+                            }
+                            "error" => {
+                                final_status = "error".to_string();
+                                if !cli.quiet {
+                                    eprintln!("⚠ Upload processing failed — likely flagged as copyrighted material.");
+                                }
+                                break;
+                            }
+                            _ => {
+                                // Still processing, continue polling
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // 404 — upload deleted (copyright takedown)
+                        final_status = "deleted".to_string();
+                        if !cli.quiet {
+                            eprintln!("⚠ Upload was removed by Suno — likely flagged as copyrighted material.");
+                        }
+                        break;
+                    }
+                    Err(e) => {
+                        // Transient error, continue polling
+                        if !cli.quiet {
+                            eprintln!("[{}s] Status check error: {e}", poll_count * 5);
+                        }
+                    }
+                }
+
+                if poll_count >= max_polls {
+                    final_status = "timeout".to_string();
+                    if !cli.quiet {
+                        eprintln!("⚠ Upload status check timed out after {}s.", max_polls * 5);
+                    }
+                    break;
+                }
             }
 
             match fmt {
                 OutputFormat::Json => output::json::success(&serde_json::json!({
                     "id": init.id,
                     "upload_id": init.id,
-                    "status": "uploaded",
+                    "status": final_status,
                 })),
                 OutputFormat::Table => {
                     eprintln!("Upload ID: {}", init.id);
-                    eprintln!("Status: uploaded");
+                    match final_status.as_str() {
+                        "complete" => eprintln!("Status: ✅ complete"),
+                        "error" | "deleted" => eprintln!("Status: ❌ removed (copyright)"),
+                        "timeout" => eprintln!("Status: ⏳ still processing (timed out)"),
+                        other => eprintln!("Status: {other}"),
+                    }
+                }
+            }
+        }
+
+        Commands::InitClip(args) => {
+            let c = client().await?;
+            if !cli.quiet {
+                eprintln!("Initializing clip for upload_id: {}...", args.upload_id);
+            }
+            match c.initialize_clip(&args.upload_id).await {
+                Ok(clip_id) => {
+                    if !cli.quiet {
+                        eprintln!("✅ clip_id: {clip_id}");
+                    }
+                    match fmt {
+                        OutputFormat::Json => output::json::success(&serde_json::json!({
+                            "upload_id": args.upload_id,
+                            "clip_id": clip_id,
+                        })),
+                        OutputFormat::Table => {
+                            eprintln!("upload_id: {}", args.upload_id);
+                            eprintln!("clip_id:   {clip_id}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    return Err(e);
                 }
             }
         }
